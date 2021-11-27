@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+
+<head>
+	<meta charset="utf-8">
+	<title>streaming player</title>
+	<link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+	<video id="videoPlayer" controls></video>
+	<label for="mpd_url">mpd file url</label>
+	<input type="text" id="mpd_url">
+	<button class="url_btn">load</button>
+
+	<script src="dash.js-master/dist/dash.all.min.js"></script>
+	<script>
+		let submit_btn = document.querySelector(".url_btn");
+		submit_btn.addEventListener("click", load);
+		let player = dashjs.MediaPlayer().create();
+		let timestamp = 0
+		let stall_count = []
+		let bitrate_count = []
+		let interval_id = []
+
+		function load(e) {
+			if (interval_id !== [])
+				clearInterval(interval_id);
+
+			//var url = "https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd"
+			timestamp = 0
+			if (stall_count.length !== 0) {
+				console.log(stall_count.slice())
+				stall_count = []
+			}
+			if (bitrate_count.length !== 0) {
+				console.log(bitrate_count.slice())
+				bitrate_count = []
+			}
+			player.initialize(document.querySelector("#videoPlayer"), document.querySelector("#mpd_url").value, false)
+			player.on(dashjs.MediaPlayer.events.PLAYBACK_PAUSED, stall_handler)
+			player.on(dashjs.MediaPlayer.events.PLAYBACK_PLAYING, stall_handler)
+		}
+
+		function stall_handler(e) {
+			//console.log(e);
+			if (e.type === dashjs.MediaPlayer.events.PLAYBACK_PAUSED) {
+				let now = new Date()
+				timestamp = now.getTime()
+			}
+			else if (e.type === dashjs.MediaPlayer.events.PLAYBACK_PLAYING && timestamp !== 0) {
+				let now = new Date()
+				stall_count.push(now.getTime() - timestamp)
+				//console.log(`diff : ${now.getTime() - timestamp}ms`)
+			}
+			else if (e.type === dashjs.MediaPlayer.events.PLAYBACK_PLAYING && timestamp === 0) {
+				let video_ele = document.querySelector('#videoPlayer')
+				let last = video_ele.webkitVideoDecodedByteCount
+				interval_id = setInterval(() => {
+					let metrix = player.getDashMetrics()
+					video_ele = document.querySelector('#videoPlayer')
+					bitrate_count.push(video_ele.webkitVideoDecodedByteCount - last)
+					last = video_ele.webkitVideoDecodedByteCount
+				}, 1000)
+			}
+		}
+	</script>
+</body>
+
+</html>
