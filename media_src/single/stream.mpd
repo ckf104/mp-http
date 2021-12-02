@@ -6,11 +6,11 @@
     <AdaptationSet mimeType="video/mp4" segmentAlignment="true" startWithSAP="1" maxWidth="1280" maxHeight="720">
       <Representation id="video-avc1" codecs="avc1.64001F" width="1280" height="720" scanType="progressive" frameRate="25" bandwidth="787010">
         <SegmentList timescale="1000" duration="36000">
-          <Initialization sourceURL="sidx_fragmented_try.mp4" range="32-1167"/>
-          <SegmentURL media="sidx_fragmented_try.mp4" mediaRange="1260-3542805"/>
-          <SegmentURL media="sidx_fragmented_try.mp4" mediaRange="3828672-7063142"/>
-          <SegmentURL media="sidx_fragmented_try.mp4" mediaRange="7348533-11650519"/>
-          <SegmentURL media="sidx_fragmented_try.mp4" mediaRange="11936256-14020528"/>
+          <Initialization sourceURL="fragmented_try.mp4" range="32-1167"/>
+          <SegmentURL media="fragmented_try.mp4" mediaRange="1168-3542713"/>
+          <SegmentURL media="fragmented_try.mp4" mediaRange="3828580-7063050"/>
+          <SegmentURL media="fragmented_try.mp4" mediaRange="7348441-11650427"/>
+          <SegmentURL media="fragmented_try.mp4" mediaRange="11936164-14020436"/>
         </SegmentList>
       </Representation>
     </AdaptationSet>
@@ -19,12 +19,12 @@
       <Representation id="audio-und-mp4a.40.2" codecs="mp4a.40.2" bandwidth="63506" audioSamplingRate="24000">
         <AudioChannelConfiguration schemeIdUri="urn:mpeg:mpegB:cicp:ChannelConfiguration" value="2"/>
         <SegmentList timescale="1000" duration="36000">
-          <Initialization sourceURL="sidx_fragmented_try.mp4" range="32-1167"/>
-          <SegmentURL media="sidx_fragmented_try.mp4" mediaRange="3542806-3828671"/>
-          <SegmentURL media="sidx_fragmented_try.mp4" mediaRange="7063143-7348532"/>
-          <SegmentURL media="sidx_fragmented_try.mp4" mediaRange="11650520-11936255"/>
-          <SegmentURL media="sidx_fragmented_try.mp4" mediaRange="14020529-14163912"/>
-          <SegmentURL media="sidx_fragmented_try.mp4" mediaRange="14163913-14164699"/>
+          <Initialization sourceURL="fragmented_try.mp4" range="32-1167"/>
+          <SegmentURL media="fragmented_try.mp4" mediaRange="3542714-3828579"/>
+          <SegmentURL media="fragmented_try.mp4" mediaRange="7063051-7348440"/>
+          <SegmentURL media="fragmented_try.mp4" mediaRange="11650428-11936163"/>
+          <SegmentURL media="fragmented_try.mp4" mediaRange="14020437-14163820"/>
+          <SegmentURL media="fragmented_try.mp4" mediaRange="14163821-14164607"/>
         </SegmentList>
       </Representation>
     </AdaptationSet>

@@ -21,6 +21,8 @@ func prog_init() *http.Server { // initialzie the server and other parameters
 	http.HandleFunc("/", http_handler_default)
 	http.HandleFunc("/media_src/multiple/video/", http_handler_video)
 	http.HandleFunc("/media_src/multiple/audio/", http_handler_audio)
+	//http.HandleFunc("/media_src/single/", http_handler_single)
+
 	return &http.Server{ // configuration for server, using DefaultServeMux
 		Addr:        "127.0.0.1:http",
 		ReadTimeout: 120 * time.Second,
@@ -29,6 +31,18 @@ func prog_init() *http.Server { // initialzie the server and other parameters
 		*/
 	}
 }
+
+/*var t int = 0
+
+func http_handler_single(response http.ResponseWriter, request *http.Request) {
+	if (t % 2) == 0 {
+		t += 1
+		http_handler(response, request, "video/mp4")
+	} else {
+		t += 1
+		http_handler(response, request, "audio/mp4")
+	}
+}*/
 
 func http_handler_video(response http.ResponseWriter, request *http.Request) {
 	http_handler(response, request, "video/mp4")
@@ -75,6 +89,11 @@ func http_handler(response http.ResponseWriter, request *http.Request, content_t
 
 	response.Header().Set("content-type", content_type)
 	response.Header().Set("content-length", strconv.FormatInt(int64(bytes_end-bytes_st+1), 10))
+
+	response.Header().Set("Access-Control-Allow-Origin", "*")
+	response.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS,HEAD")
+	response.Header().Set("Access-Control-Allow-Headers", "range,origin,accept-encoding")
+
 	if bytes_st != 0 || bytes_end == int(file_info.Size()) { // byte-range request
 		response.Header().Set("content-range", fmt.Sprintf("bytes %d-%d/%d",
 			bytes_st, bytes_end, file_info.Size()))
@@ -82,7 +101,7 @@ func http_handler(response http.ResponseWriter, request *http.Request, content_t
 	}
 
 	buf = make([]byte, bytes_end-bytes_st+1)
-	if request.Method == "HEAD" { // no body response for head method
+	if request.Method == "HEAD" || request.Method == "OPTIONS" { // no body response for head method
 		file.Close()
 		response.WriteHeader(http.StatusOK)
 		return
