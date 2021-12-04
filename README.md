@@ -5,6 +5,7 @@
 * `media_src`目录下是参考的dash播放源，`media_src\single`目录下是fmp4文件，通过http中的range header来取视频块，而`media_src\multiple`则是把完整mp4拆分成了若干独立的文件块。
 * `dash.js-master`是实现客户端dash播放器的dash.js库
 * `index.html` 和 `style.css`是客户端播放器
+* `cpp_proxy`下是所有的proxy代码，`general.hpp`存放所有需要的常量，`helper.cpp`是相关的辅助函数，`proxy.cpp`是监听套接字的主函数，`scheduler.cpp`实际处理连接。
 
 ## TODO
 
