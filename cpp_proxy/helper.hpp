@@ -38,13 +38,16 @@ public:
 class Path
 {
 public:
-    string ip_addr;
+    string ip_addr;       
     Rio_ptr rio_ptr;
     int latency;
     int bandwidth;
+    bool closed;  // corresponding socket has been closed ? 
 
     Path(const string &addr, int fd, int init_latency);
     Path();
+    void close();   // close tcp socket in this path
+    bool is_closed() const;
 };
 
 class Request
@@ -57,10 +60,10 @@ public: // private ?
     string request_line; // method url http_proto
 
     vector<string> header; // string + \r\n ?
-    vector<uint8_t> body;  // to avoid \0 in body, so not use string
+    //vector<uint8_t> body;  // to avoid \0 in body, so not use string
 
-    int send(int fd);                      // send a http request, return < 0 means failed
-    static Request_ptr recv(Rio_t *rio_t); // return nullptr means failed
+    int send(int fd, const uint8_t* body, int body_len) const;   // send a http request, return < 0 means failed
+    static Request_ptr recv(Rio_t *rio_t, vector<uint8_t>& req_body);    // return nullptr means failed
 };
 
 class Response
@@ -72,9 +75,9 @@ public:
     string response_line; // http_proto status_code status_msg
 
     vector<string> header;
-    vector<uint8_t> body;
+    //vector<uint8_t> body;
 
-    int send(int fd);                       //  give a http response, return < 0 means failed
+    int send(int fd, const uint8_t* body, int body_len) const; //  give a http response, return < 0 means failed
     static Response_ptr recv(Rio_t *rio_t); // return nullptr means failed
 };
 
