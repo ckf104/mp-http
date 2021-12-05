@@ -2,3 +2,10 @@
     width: 960px;
     height: 540px;
 }
+
+.monitor_box{
+    border: dashed;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    width: 250px;
+}

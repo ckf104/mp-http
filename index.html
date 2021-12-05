@@ -12,6 +12,14 @@
 	<label for="mpd_url">mpd file url</label>
 	<input type="text" id="mpd_url">
 	<button class="url_btn">load</button>
+	<div class="monitor_box">
+		<strong>Real time bitrate: </strong>
+		<span class="bitrate">0 Kbps</span>
+		<br>
+		<strong>Resolution: </strong>
+		<span class="resolution">0 x 0</span>
+		<br>
+	</div>
 
 	<script src="dash.js-master/dist/dash.all.min.js"></script>
 	<script>
@@ -56,9 +64,15 @@
 			else if (e.type === dashjs.MediaPlayer.events.PLAYBACK_PLAYING && timestamp === 0) {
 				let video_ele = document.querySelector('#videoPlayer')
 				let last = video_ele.webkitVideoDecodedByteCount
+
 				interval_id = setInterval(() => {
 					let metrix = player.getDashMetrics()
 					video_ele = document.querySelector('#videoPlayer')
+					let real_bitrate = document.querySelector(".bitrate")
+					let resolution = document.querySelector(".resolution")
+
+					real_bitrate.innerHTML = `${Math.round((video_ele.webkitVideoDecodedByteCount - last) / 1000 * 8)} Kbps`
+					resolution.innerHTML = `${video_ele.videoWidth} x ${video_ele.videoHeight}`
 					bitrate_count.push(video_ele.webkitVideoDecodedByteCount - last)
 					last = video_ele.webkitVideoDecodedByteCount
 				}, 1000)
