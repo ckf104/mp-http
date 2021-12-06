@@ -94,7 +94,7 @@ func http_handler(response http.ResponseWriter, request *http.Request, content_t
 	response.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS,HEAD")
 	response.Header().Set("Access-Control-Allow-Headers", "range,origin,accept-encoding")
 
-	if bytes_st != 0 || bytes_end == int(file_info.Size()) { // byte-range request
+	if bytes_st != 0 || bytes_end != int(file_info.Size())-1 { // byte-range request
 		response.Header().Set("content-range", fmt.Sprintf("bytes %d-%d/%d",
 			bytes_st, bytes_end, file_info.Size()))
 		response.WriteHeader(http.StatusPartialContent)
