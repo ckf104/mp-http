@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <iostream>
 #include <regex>
 #include <map>
 #include "csapp.h"
@@ -10,16 +11,17 @@ using std::set;
 using std::string;
 
 /* You won't lose style points for including this long line in your code */
-static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n";
-static const char *conn_hdr = "Connection: close\r\n";
-static const char *prox_hdr = "Proxy-Connection: close\r\n";
+static const char *user_agent_hdr = "Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n";
+static const char *conn_hdr = "close\r\n";
+static const char *proxy_hdr = "close\r\n";
 extern int h_errno;
 extern char **environ;
 
 void doit(int fd);
+void send_requesthdrs(int fd, const std::map<string, string> &headers, const char *) ;
 void clienterror(int fd, const char *cause, const char *errnum, const char *shortmsg, const char *longmsg);
 void parse_uri(char *uri, char *hostname, char *path, int *port);
-int build_requesthdrs(rio_t *rp, char *newreq, char *hostname);
+std::map<string,string> build_requesthdrs(rio_t *rp, char *hostname);
 void *Thread(void *vargp);
 
 int main(int argc, char **argv)
@@ -82,7 +84,6 @@ void doit(int client_fd)
 
     if (!Rio_readlineb(&from_client, buf, MAXLINE)) return;
     sscanf(buf, "%s %s %s", method, uri, version);
-    printf("%s %s %s\n", method, uri, version);
     if (strcasecmp(method, "GET"))
     {
         clienterror(client_fd, method, "501", "Not Implemented", "Proxy Server does not implement this method");
@@ -104,11 +105,12 @@ void doit(int client_fd)
 
     Rio_readinitb(&to_endserver, endserver_fd);
 
-    char newreq[MAXLINE]; //for end server http req headers
-    sprintf(newreq, "GET %s HTTP/1.0\r\n", path);
-    printf("GET %s\n", path);
-    auto headers = build_requesthdrs(&from_client, newreq, hostname);
-    Rio_writen(endserver_fd, newreq, strlen(newreq)); //send client header to real server
+    auto headers = build_requesthdrs(&from_client, hostname);
+    headers["User-Agent"] = user_agent_hdr;
+    headers["Connection"] = conn_hdr;
+    headers["Proxy-Connection"] = proxy_hdr;
+    //TODO:Parse request headers...
+    send_requesthdrs(endserver_fd, headers, path);
 
     int n, end = 0, sum = 0;
     char data[MAX_OBJECT_SIZE];
@@ -168,31 +170,35 @@ void parse_uri(char *uri, char *hostname, char *path, int *port) {
     }
 }
 
-int build_requesthdrs(rio_t *rp, char *newreq, char *hostname) {
+std::map<string,string> build_requesthdrs(rio_t *rp, char *hostname) {
     char buf[MAXLINE];
-    int content_length = 0;
-    static const set<string> processed = { "Host:", "User-Agent:", "Connection:", "Proxy-Connection:" };
     std::map<string, string> headers;
-    const std::regex base("(\\w*):\\s(.*)");
-    std::smatch match;
-
     while (Rio_readlineb(rp, buf, MAXLINE) > 0)
     {
         if (!strcmp(buf, "\r\n")) break;
-        string s(buf);
-        bool hit = false;
-        for (auto x : processed) {
-            if (s.find(x) != string::npos) hit = true;
+        int p, len = strlen(buf);
+        for (p = 0; p < len; ++p) 
+            if (buf[p] == ':') break;
+        if (p < len) {
+            string a(buf, buf + p), b(buf + p + 1, buf + len); 
+            headers[a] = b;
+            std::cout << a << " " << b << std::endl;
         }
-        if (hit) continue;
-        if (!strncasecmp(buf, "Content-length:", 15)) {
-            sscanf(buf + 15, "%u", &content_length);
-        }
-        sprintf(newreq, "%s%s", newreq, buf);
     }
-    sprintf(newreq, "%s Host: %s\r\n", newreq, hostname);
-    sprintf(newreq, "%s%s%s%s", newreq, user_agent_hdr, conn_hdr, prox_hdr);
-    sprintf(newreq, "%s\r\n", newreq);
-    printf("HH:%s\n", newreq);
-    return content_length;
+    return headers;
+}
+
+void send_requesthdrs(int fd, const std::map<string, string> &headers, const char *path) {
+    char buf[MAXLINE];
+    sprintf(buf, "GET %s HTTP/1.1\r\n", path);
+    Rio_writen(fd, buf, strlen(buf));
+    for (auto x : headers) {
+        if (x.first == "Host")
+            sprintf(buf, " %s: %s", x.first.c_str(), x.second.c_str());
+        else 
+            sprintf(buf, "%s: %s", x.first.c_str(), x.second.c_str());
+        Rio_writen(fd, buf, strlen(buf));
+    }
+    sprintf(buf, "\r\n");
+    Rio_writen(fd, buf, strlen(buf));
 }
