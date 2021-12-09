@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <regex>
+#include <map>
 #include "csapp.h"
 #include <string>
 #include <set>
@@ -15,7 +17,7 @@ extern int h_errno;
 extern char **environ;
 
 void doit(int fd);
-void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
+void clienterror(int fd, const char *cause, const char *errnum, const char *shortmsg, const char *longmsg);
 void parse_uri(char *uri, char *hostname, char *path, int *port);
 int build_requesthdrs(rio_t *rp, char *newreq, char *hostname);
 void *Thread(void *vargp);
@@ -105,7 +107,7 @@ void doit(int client_fd)
     char newreq[MAXLINE]; //for end server http req headers
     sprintf(newreq, "GET %s HTTP/1.0\r\n", path);
     printf("GET %s\n", path);
-    build_requesthdrs(&from_client, newreq, hostname);
+    auto headers = build_requesthdrs(&from_client, newreq, hostname);
     Rio_writen(endserver_fd, newreq, strlen(newreq)); //send client header to real server
 
     int n, end = 0, sum = 0;
@@ -119,14 +121,14 @@ void doit(int client_fd)
 }
 
 // returns an error message to the client
-void clienterror(int fd, char *cause, char *errnum,
-                 char *shortmsg, char *longmsg) {
-    char buf[MAXLINE], body[MAXBUF];
-    sprintf(body, "<html><title>Proxy Error</title>");
-    sprintf(body, "%s<body bgcolor=ffffff>\r\n", body);
-    sprintf(body, "%s%s: %s\r\n", body, errnum, shortmsg);
-    sprintf(body, "%s<p>%s: %s\r\n", body, longmsg, cause);
-    sprintf(body, "%s<hr><em>The Proxy Web server</em>\r\n", body);
+void clienterror(int fd, const char *cause, const char *errnum,
+                 const char *shortmsg, const char *longmsg) {
+    char buf[MAXLINE], body[MAXBUF], *p = body;
+    p += snprintf(p, MAXBUF-(p-body), "<html><title>Proxy Error</title>");
+    p += snprintf(p, MAXBUF-(p-body), "%s<body bgcolor=ffffff>\r\n", body);
+    p += snprintf(p, MAXBUF-(p-body), "%s%s: %s\r\n", body, errnum, shortmsg);
+    p += snprintf(p, MAXBUF-(p-body), "%s<p>%s: %s\r\n", body, longmsg, cause);
+    p += snprintf(p, MAXBUF-(p-body), "%s<hr><em>The Proxy Web server</em>\r\n", body);
     sprintf(buf, "HTTP/1.1 %s %s\r\n", errnum, shortmsg);
     Rio_writen(fd, buf, strlen(buf));
     sprintf(buf, "Content-type: text/html\r\n");
@@ -170,11 +172,19 @@ int build_requesthdrs(rio_t *rp, char *newreq, char *hostname) {
     char buf[MAXLINE];
     int content_length = 0;
     static const set<string> processed = { "Host:", "User-Agent:", "Connection:", "Proxy-Connection:" };
+    std::map<string, string> headers;
+    const std::regex base("(\\w*):\\s(.*)");
+    std::smatch match;
 
     while (Rio_readlineb(rp, buf, MAXLINE) > 0)
     {
         if (!strcmp(buf, "\r\n")) break;
-        if (processed.count(string(buf))) continue;
+        string s(buf);
+        bool hit = false;
+        for (auto x : processed) {
+            if (s.find(x) != string::npos) hit = true;
+        }
+        if (hit) continue;
         if (!strncasecmp(buf, "Content-length:", 15)) {
             sscanf(buf + 15, "%u", &content_length);
         }
@@ -183,6 +193,6 @@ int build_requesthdrs(rio_t *rp, char *newreq, char *hostname) {
     sprintf(newreq, "%s Host: %s\r\n", newreq, hostname);
     sprintf(newreq, "%s%s%s%s", newreq, user_agent_hdr, conn_hdr, prox_hdr);
     sprintf(newreq, "%s\r\n", newreq);
-    printf("%s\n", newreq);
+    printf("HH:%s\n", newreq);
     return content_length;
 }
