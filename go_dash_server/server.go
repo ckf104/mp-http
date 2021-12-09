@@ -22,9 +22,9 @@ func prog_init() *http.Server { // initialzie the server and other parameters
 	http.HandleFunc("/media_src/multiple/video/", http_handler_video)
 	http.HandleFunc("/media_src/multiple/audio/", http_handler_audio)
 	//http.HandleFunc("/media_src/single/", http_handler_single)
-
 	return &http.Server{ // configuration for server, using DefaultServeMux
 		Addr:        "127.0.0.1:http",
+		//Addr:        "10.100.1.2:http",
 		ReadTimeout: 120 * time.Second,
 		/*ReadTimeout is the maximum duration for reading the entire request, including the body.
 		other parameters are default now.
@@ -130,5 +130,7 @@ err_status:
 }
 
 func main() {
-	prog_init().ListenAndServe()
+	var err error
+	err = prog_init().ListenAndServe()
+	log.Println(err)
 }

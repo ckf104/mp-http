@@ -1,0 +1,42 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/curc/mp-http/cpp_proxy/general.hpp
+
+/home/curc/mp-http/cpp_proxy/helper.hpp
+string
+-
+vector
+-
+memory
+-
+sys/socket.h
+-
+general.hpp
+/home/curc/mp-http/cpp_proxy/general.hpp
+
+/home/curc/mp-http/cpp_proxy/proxy.cpp
+thread
+-
+sys/socket.h
+-
+general.hpp
+/home/curc/mp-http/cpp_proxy/general.hpp
+helper.hpp
+/home/curc/mp-http/cpp_proxy/helper.hpp
+scheduler.hpp
+/home/curc/mp-http/cpp_proxy/scheduler.hpp
+
+/home/curc/mp-http/cpp_proxy/scheduler.hpp
+unordered_map
+-
+vector
+-
+helper.hpp
+/home/curc/mp-http/cpp_proxy/helper.hpp
+

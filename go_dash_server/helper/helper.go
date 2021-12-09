@@ -9,7 +9,7 @@ import (
 )
 
 func Get_type_by_content(path string) string { // get mime type from content of file, not very accurate i think
-	var r http.Dir = ".."
+	var r http.Dir = "../../"
 	f, e := r.Open(path)
 	if e != nil {
 		fmt.Println(e)
@@ -23,12 +23,14 @@ func Get_type_by_content(path string) string { // get mime type from content of 
 	return http.DetectContentType(buf)
 }
 
-func Get_type_by_extension(filename string) string { // get mime type from extension name of file, more accurate i think
+// get mime type from extension name of file, more accurate i think
+func Get_type_by_extension(filename string) string {
 	extension_name := filename[strings.LastIndex(filename, "."):]
 	return mime.TypeByExtension(extension_name)
 }
 
-func Get_range(byte_range string, max_size int) (int, int, error) { // extract string like "bytes=123-456" or "bytes=123-"
+// extract string like "bytes=123-456" or "bytes=123-"
+func Get_range(byte_range string, max_size int) (int, int, error) {
 	start := 0
 	end := max_size - 1
 	var err error = nil

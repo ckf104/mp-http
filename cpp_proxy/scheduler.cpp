@@ -8,8 +8,8 @@ void doit(int connfd)
 {
     Rio_ptr rio_ptr(new Rio_t(connfd));
     Path servers[path_num];
-
-    while (1) // keep-alive connection
+    // Keep-alive connection
+    while (1)
     {
         vector<uint8_t> req_body, reply_body;
         Response_ptr response;
@@ -41,4 +41,34 @@ void doit(int connfd)
 RET:
     // may need send error message ?
     Close(connfd);
+}
+
+/**
+ * @param goal number tcp connections which hopes to setup
+ * @param domain_name domain_name
+ * @param servers result path
+ * @return number of built connection
+ */
+int dns_lookup(Path (&servers)[path_num], int goal, const string &domain_name) {
+
+}
+
+// judge whether to use mp-http for this http request
+bool need_mp_path(Request *req){
+    return false;
+}
+
+Response_ptr send_mp_request(Path (&servers)[path_num], Request *request, vector<uint8_t> &reply_body) {
+    exit(-1); 
+}
+
+Response_ptr send_normal_request(Path &server, Request *request, vector<uint8_t> &reply_body, const vector<uint8_t> &req_body) {
+    if (server.is_closed()) {
+        return nullptr;
+    }
+    request->send(server.rio_ptr, req_body.data(), req_body.size());
+}
+
+bool Path::is_closed() const {
+    return false;
 }

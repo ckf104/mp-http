@@ -16,7 +16,7 @@ using std::string;
 using std::vector;
 using Request_ptr = std::unique_ptr<Request>;
 using Response_ptr = std::unique_ptr<Response>;
-using Rio_ptr = std::unique_ptr<Rio_t>;
+using Rio_ptr = std::shared_ptr<Rio_t>;
 
 class Rio_t
 {
@@ -32,7 +32,7 @@ public:
     ssize_t rio_readnb(vector<uint8_t> &usrbuf, size_t n);
     ssize_t rio_read(void *usr_buf, size_t n);
 
-    ssize_t rio_writen(void *usrbuf, size_t n, int flags = 0);
+    ssize_t rio_writen(void *usrbuf, size_t n, int flags);
 };
 
 class Path
@@ -52,17 +52,16 @@ public:
 
 class Request
 {
-public: // private ?
+public: 
     string method;
     string host;
     string url;
-    string http_proto;   // http/1.x
+    string http_proto = "HTTP/1.1";   // http/1.x
     string request_line; // method url http_proto
 
     vector<string> header; // string + \r\n ?
-    //vector<uint8_t> body;  // to avoid \0 in body, so not use string
 
-    int send(int fd, const uint8_t* body, int body_len) const;   // send a http request, return < 0 means failed
+    int send(Rio_ptr p, const uint8_t* body, int body_len) ;   // send a http request, return < 0 means failed
     static Request_ptr recv(Rio_t *rio_t, vector<uint8_t>& req_body);    // return nullptr means failed
 };
 
@@ -77,12 +76,15 @@ public:
     vector<string> header;
     //vector<uint8_t> body;
 
-    int send(int fd, const uint8_t* body, int body_len) const; //  give a http response, return < 0 means failed
+    //  give a http response, return < 0 means failure
+    int send(int fd, const uint8_t* body, int body_len) const; 
     static Response_ptr recv(Rio_t *rio_t); // return nullptr means failed
 };
 
 int Accept(int s, struct sockaddr *addr, socklen_t *addrlen);
 int Open_listenfd(char *ip_addr, char *port);
 void Close(int fd);
-
+void Getnameinfo(const struct sockaddr *sa, socklen_t salen, char *host, 
+                 size_t hostlen, char *serv, size_t servlen, int flags);
 #endif
+

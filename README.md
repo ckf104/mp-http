@@ -11,3 +11,8 @@
 
 * 一个http代理调度器
 * 目前播放`media_src\single`下的视频会发生未知错误
+
+* google-chrome -proxy-server=http://localhost:32345
+* 在/etc/hosts加入127.0.0.1 local
+* 运行代理服务器
+* 用chrome访问http://local
