@@ -96,7 +96,7 @@ ssize_t Rio_t::rio_readlineb(string &usrbuf)
 }
 
 // don't use rio buffer
-ssize_t Rio_t::rio_writen(void *usrbuf, size_t n, int flags /*=0*/) // flags = MSG_MORE ?
+ssize_t Rio_t::rio_writen(void *usrbuf, size_t n, int flags = 0) 
 {
     size_t nleft = n;
     ssize_t nwritten;
@@ -117,10 +117,19 @@ ssize_t Rio_t::rio_writen(void *usrbuf, size_t n, int flags /*=0*/) // flags = M
     return n;
 }
 
-void unix_error(char *msg) /* Unix-style error */
+void unix_error(const char *msg) /* Unix-style error */
 {
     fprintf(stderr, "%s: %s\n", msg, strerror(errno));
     exit(0);
+}
+
+void Getnameinfo(const struct sockaddr *sa, socklen_t salen, char *host, 
+                 size_t hostlen, char *serv, size_t servlen, int flags)
+{
+    int rc;
+    if ((rc = getnameinfo(sa, salen, host, hostlen, serv,
+                          servlen, flags)) != 0)
+        unix_error("Getnameinfo error");
 }
 
 int Accept(int s, struct sockaddr *addr, socklen_t *addrlen)
@@ -190,3 +199,35 @@ int Open_listenfd(char *ip_addr, char *port)
     }
     return listenfd;
 }
+
+
+Rio_t::Rio_t(int x) {
+    rio_fd = x;
+    rio_cnt = 0; 
+}
+
+// send a http request, return < 0 means failed
+int Request::send(Rio_ptr p, const uint8_t* body, int body_len)  {   
+    for (auto x : header) {
+        p->rio_writen((void*)x.c_str(), x.size());
+    }
+    p->rio_writen((void*)body, body_len);
+}
+
+Request_ptr Request::recv(Rio_t *rio_t, vector<uint8_t>& req_body) {
+
+}
+
+int Response::send(int fd, const uint8_t* body, int body_len) const {   
+    for (auto x : header) {
+        p->rio_writen((void*)x.c_str(), x.size());
+    }
+    p->rio_writen((void*)body, body_len);
+
+}
+
+static Response_ptr recv(Rio_t *rio_t) {
+
+}
+
+Path::Path() { }
