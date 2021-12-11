@@ -4,25 +4,110 @@
 #include <map>
 #include "csapp.h"
 #include <string>
+#include <memory>
 #include <set>
-/* Recommended max cache and object sizes */
 #define MAX_OBJECT_SIZE 1024000
 using std::set;
 using std::string;
+using std::map; 
 
-/* You won't lose style points for including this long line in your code */
 static const char *user_agent_hdr = "Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n";
 static const char *conn_hdr = "close\r\n";
 static const char *proxy_hdr = "close\r\n";
-extern int h_errno;
 extern char **environ;
 
 void doit(int fd);
-void send_requesthdrs(int fd, const std::map<string, string> &headers, const char *) ;
 void clienterror(int fd, const char *cause, const char *errnum, const char *shortmsg, const char *longmsg);
 void parse_uri(char *uri, char *hostname, char *path, int *port);
-std::map<string,string> build_requesthdrs(rio_t *rp, char *hostname);
 void *Thread(void *vargp);
+
+struct HttpStream; 
+using StreamPtr = std::unique_ptr<HttpStream>; 
+struct HttpStream {
+public:
+    map<string, string> headers;
+    rio_t fd;
+    string method;
+    string uri; 
+    string version;
+    string hostname; 
+    string path;
+    int port;
+    /**
+     * @brief factory method for HttpStream
+     * 
+     * @param _fd file descriptor of the stream
+     * @return if this function returns null, the stream is closed.
+     */
+    static StreamPtr generateStream(int _fd) {
+        auto r = std::make_unique<HttpStream>();
+        Rio_readinitb(&r->fd, _fd);
+        return r;
+    }
+    /**
+     * @brief Get the Request object
+     * 
+     * @return int 0 means success
+     */
+    int getRequest() {
+        char buf[MAXLINE], _method[MAXLINE], _uri[MAXLINE], _version[MAXLINE];
+        char _hostname[MAXLINE], _path[MAXLINE];
+        if (!Rio_readlineb(&fd, buf, MAXLINE))
+        {
+            return 1;
+        }
+        sscanf(buf, "%s %s %s", _method, _uri, _version);
+        method = string(_method);
+        uri = string(_uri);
+        version = string(_version);
+        parse_uri(_uri, _hostname, _path, &port);
+        hostname = string(_hostname);
+        path = string(_path);
+        if (method != "GET")
+        {
+            printf("[Error] Not implemented!.");
+            return 1;
+        }
+        build_requesthdrs();
+        return 0;
+    }
+    void build_requesthdrs()
+    {
+        //TODO:update it
+        headers.clear();
+        char buf[MAXLINE];
+        while (Rio_readlineb(&fd, buf, MAXLINE) > 0)
+        {
+            if (!strcmp(buf, "\r\n"))
+                break;
+            int p, len = strlen(buf);
+            for (p = 0; p < len; ++p)
+                if (buf[p] == ':')
+                    break;
+            if (p < len)
+            {
+                string a(buf, buf + p), b(buf + p + 1, buf + len);
+                headers[a] = b;
+            }
+        }
+    }
+    static void send_requesthdrs(int fd, const std::map<string, string> &headers, const char *path)
+    {
+        char buf[MAXLINE];
+        sprintf(buf, "GET %s HTTP/1.1\r\n", path);
+        Rio_writen(fd, buf, strlen(buf));
+        for (auto x : headers)
+        {
+            if (x.first == "Host")
+                sprintf(buf, " %s: %s", x.first.c_str(), x.second.c_str());
+            else
+                sprintf(buf, "%s: %s", x.first.c_str(), x.second.c_str());
+            Rio_writen(fd, buf, strlen(buf));
+        }
+        sprintf(buf, "\r\n");
+        Rio_writen(fd, buf, strlen(buf));
+    }
+};
 
 int main(int argc, char **argv)
 {
@@ -66,78 +151,42 @@ void *Thread(void *vargp)
     return NULL;
 }
 
-/*
- * doit - handle one HTTP request/response transaction
- */
-/* $begin doit */
 void doit(int client_fd)
 {
     int endserver_fd;
-    char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE];
-    rio_t from_client, to_endserver;
-    /*store the request line arguments*/
-    char hostname[MAXLINE], path[MAXLINE]; //path eg  /hub/index.html
-    int port;
-
-    /* Read request line and headers */
-    Rio_readinitb(&from_client, client_fd);
-
-    if (!Rio_readlineb(&from_client, buf, MAXLINE)) return;
-    sscanf(buf, "%s %s %s", method, uri, version);
-    if (strcasecmp(method, "GET"))
-    {
-        clienterror(client_fd, method, "501", "Not Implemented", "Proxy Server does not implement this method");
-        printf("[Error] Not implemented!.");
+    rio_t to_endserver;
+    auto clientStream = HttpStream::generateStream(client_fd);
+    if (!clientStream) {
+        printf("[Err] Connection failed getStream\n");
         return;
     }
-    //parse uri then open a clientfd
-
-    parse_uri(uri, hostname, path, &port);
-
-    char port_str[10];
-    sprintf(port_str, "%d", port);
-    endserver_fd = Open_clientfd(hostname, port_str);
+    int r = clientStream->getRequest(); 
+    endserver_fd = Open_clientfd(clientStream->hostname.c_str(), std::to_string(clientStream->port).c_str());
     if (endserver_fd < 0)
     {
-        printf("connection failed\n");
+        printf("[Err] Connection failed at open endserver_fd\n");
         return;
     }
-
     Rio_readinitb(&to_endserver, endserver_fd);
+    if (r < 0) {
+        printf("[Err] Connection failed at get reqeust.\n");
+    }
+    clientStream->headers["User-Agent"] = user_agent_hdr;
+    clientStream->headers["Connection"] = conn_hdr;
+    clientStream->headers["Proxy-Connection"] = proxy_hdr;
+    printf("Headers built. 1.2\n"); 
+    HttpStream::send_requesthdrs(endserver_fd, clientStream->headers, clientStream->path.c_str());
 
-    auto headers = build_requesthdrs(&from_client, hostname);
-    headers["User-Agent"] = user_agent_hdr;
-    headers["Connection"] = conn_hdr;
-    headers["Proxy-Connection"] = proxy_hdr;
-    //TODO:Parse request headers...
-    send_requesthdrs(endserver_fd, headers, path);
-
+    printf("Headers built. 2\n"); 
     int n, end = 0, sum = 0;
-    char data[MAX_OBJECT_SIZE];
+    char data[MAX_OBJECT_SIZE], buf[MAXLINE];
     while ((n = Rio_readlineb(&to_endserver, buf, MAXLINE))) {//real server response to buf
         if (end) sum += n;
         if (!strcmp(buf, "\r\n")) end = 1;
         Rio_writen(client_fd, buf, n);  //real server response to real client
     }
+    printf("Headers built. 3\n"); 
     Close(endserver_fd);
-}
-
-// returns an error message to the client
-void clienterror(int fd, const char *cause, const char *errnum,
-                 const char *shortmsg, const char *longmsg) {
-    char buf[MAXLINE], body[MAXBUF], *p = body;
-    p += snprintf(p, MAXBUF-(p-body), "<html><title>Proxy Error</title>");
-    p += snprintf(p, MAXBUF-(p-body), "%s<body bgcolor=ffffff>\r\n", body);
-    p += snprintf(p, MAXBUF-(p-body), "%s%s: %s\r\n", body, errnum, shortmsg);
-    p += snprintf(p, MAXBUF-(p-body), "%s<p>%s: %s\r\n", body, longmsg, cause);
-    p += snprintf(p, MAXBUF-(p-body), "%s<hr><em>The Proxy Web server</em>\r\n", body);
-    sprintf(buf, "HTTP/1.1 %s %s\r\n", errnum, shortmsg);
-    Rio_writen(fd, buf, strlen(buf));
-    sprintf(buf, "Content-type: text/html\r\n");
-    Rio_writen(fd, buf, strlen(buf));
-    sprintf(buf, "Content-length: %d\r\n\r\n", (int)strlen(body));
-    Rio_writen(fd, buf, strlen(buf));
-    Rio_writen(fd, body, strlen(body));
 }
 
 void parse_uri(char *uri, char *hostname, char *path, int *port) {
@@ -147,12 +196,11 @@ void parse_uri(char *uri, char *hostname, char *path, int *port) {
         pos1 = uri;
     else
         pos1 += 2;
-
     char *pos2 = strstr(pos1, ":");
     if (pos2 != NULL) {
-        *pos2 = '\0'; //pos1 www.cmu.edu/08080/hub/index.html
+        *pos2 = '\0'; 
         strncpy(hostname, pos1, MAXLINE);
-        sscanf(pos2 + 1, "%d%s", port, path); //pos2+1 8080/hub/index.html
+        sscanf(pos2 + 1, "%d%s", port, path); 
         *pos2 = ':';
     }
     else {
@@ -170,35 +218,3 @@ void parse_uri(char *uri, char *hostname, char *path, int *port) {
     }
 }
 
-std::map<string,string> build_requesthdrs(rio_t *rp, char *hostname) {
-    char buf[MAXLINE];
-    std::map<string, string> headers;
-    while (Rio_readlineb(rp, buf, MAXLINE) > 0)
-    {
-        if (!strcmp(buf, "\r\n")) break;
-        int p, len = strlen(buf);
-        for (p = 0; p < len; ++p) 
-            if (buf[p] == ':') break;
-        if (p < len) {
-            string a(buf, buf + p), b(buf + p + 1, buf + len); 
-            headers[a] = b;
-            std::cout << a << " " << b << std::endl;
-        }
-    }
-    return headers;
-}
-
-void send_requesthdrs(int fd, const std::map<string, string> &headers, const char *path) {
-    char buf[MAXLINE];
-    sprintf(buf, "GET %s HTTP/1.1\r\n", path);
-    Rio_writen(fd, buf, strlen(buf));
-    for (auto x : headers) {
-        if (x.first == "Host")
-            sprintf(buf, " %s: %s", x.first.c_str(), x.second.c_str());
-        else 
-            sprintf(buf, "%s: %s", x.first.c_str(), x.second.c_str());
-        Rio_writen(fd, buf, strlen(buf));
-    }
-    sprintf(buf, "\r\n");
-    Rio_writen(fd, buf, strlen(buf));
-}

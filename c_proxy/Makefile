@@ -5,7 +5,7 @@
 # build your proxy from sources.
 
 CC = g++
-CFLAGS = -g -Wall -std=c++11
+CFLAGS = -g -Wall -std=c++14
 LDFLAGS = -lpthread
 
 all: proxy

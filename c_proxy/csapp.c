@@ -942,7 +942,7 @@ ssize_t Rio_readlineb(rio_t *rp, void *usrbuf, size_t maxlen)
  *       -1 with errno set for other errors.
  */
 /* $begin open_clientfd */
-int open_clientfd(char *hostname, char *port) {
+int open_clientfd(const char *hostname, const char *port) {
     int clientfd, rc;
     struct addrinfo hints, *listp, *p;
 
@@ -1041,7 +1041,7 @@ int open_listenfd(char *port)
 /****************************************************
  * Wrappers for reentrant protocol-independent helpers
  ****************************************************/
-int Open_clientfd(char *hostname, char *port) 
+int Open_clientfd(const char *hostname, const char *port) 
 {
     int rc;
 
