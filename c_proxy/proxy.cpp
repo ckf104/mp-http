@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <future>
 #include <iostream>
 #include <regex>
 #include <map>
@@ -7,6 +8,7 @@
 #include <string>
 #include <memory>
 #include <set>
+#include <optional>
 #define MAX_OBJECT_SIZE 1024000
 using std::set;
 using std::string;
@@ -26,13 +28,8 @@ struct HttpStream;
 using StreamPtr = std::unique_ptr<HttpStream>; 
 struct HttpStream {
 public:
-    map<string, string> headers;
     Rio_t fd;
-    string method;
-    string uri; 
-    string version;
-    string hostname; 
-    string path;
+    string hostname;
     int port;
     HttpStream(int _fd) : fd(_fd) { }
     /**
@@ -50,29 +47,54 @@ public:
      * 
      * @return int 0 means success
      */
-    int getRequest() {
+    std::optional<Request> getRequest() {
         char _method[max_line], _uri[max_line], _version[max_line];
         char _hostname[max_line], _path[max_line];
         string buf;
         if (!fd.rio_readlineb(buf)) {
-            return -1;
+            return std::nullopt;
         }
         sscanf(buf.c_str(), "%s %s %s", _method, _uri, _version);
-        method = string(_method);
-        uri = string(_uri);
-        version = string(_version);
+        Request r;
+        r.method = string(_method);
+        r.url = string(_uri);
+        r.http_proto = string(_version);
         parse_uri(_uri, _hostname, _path, &port);
-        hostname = string(_hostname);
-        path = string(_path);
-        if (method != "GET")
+        r.hostname = hostname = string(_hostname);
+        r.path = string(_path);
+        if (r.method != "GET")
         {
             printf("[Error] Not implemented!.");
-            return 1;
+            return std::nullopt;
         }
-        build_requesthdrs();
-        return 0;
+        build_requesthdrs(r.headers);
+        return std::make_optional(r);
     }
-    void build_requesthdrs()
+    std::optional<Response> getResponse() {
+        Response r;
+        int n; string buf;
+        n = fd.rio_readlineb(r.headline); 
+        char ver[max_line], code[max_line], status[max_line];
+        sscanf(r.headline.c_str(), "%s%s%s", ver, code, status);
+        r.version = string(ver); 
+        r.code = string(code); 
+        r.status = string(status); 
+
+        while ((n = fd.rio_readlineb(buf)) > 0)
+        {
+            if (buf == "\r\n") break;
+            int p;
+            ssize_t len = buf.size();
+            for (p = 0; p < len; ++p)
+                if (buf[p] == ':')
+                    break;
+            if (p < len)
+            //TODO:Not robust
+                r.headers[buf.substr(0, p)] = buf.substr(p + 2, len);
+        }
+        return std::make_optional(r);
+    }
+    void build_requesthdrs(map<string,string> &headers)
     {
         headers.clear();
         string buf;
@@ -84,22 +106,33 @@ public:
                 if (buf[p] == ':')
                     break;
             if (p < len) {
-                headers[buf.substr(0, p)] = buf.substr(p + 1, len);
+                headers[buf.substr(0, p)] = buf.substr(p + 2, len);
             }
         }
     }
-    static void send_requesthdrs(int fd, const std::map<string, string> &headers, const char *path)
-    {
+    static void sendReqeust(int fd, const Request &r) {
         char buf[max_line];
-        sprintf(buf, "GET %s HTTP/1.1\r\n", path);
+        sprintf(buf, "GET %s HTTP/1.1\r\n", r.path.c_str());
         Rio_t w(fd);
         w.rio_writen((void*)buf, strlen(buf));
-        for (auto x : headers)
+        for (auto x : r.headers)
         {
             if (x.first == "Host")
                 sprintf(buf, " %s: %s", x.first.c_str(), x.second.c_str());
             else
                 sprintf(buf, "%s: %s", x.first.c_str(), x.second.c_str());
+            w.rio_writen((void *)buf, strlen(buf));
+        }
+        sprintf(buf, "\r\n");
+        w.rio_writen((void*)buf, strlen(buf));
+    }
+    static void sendResponse(int fd, const Response &r) {
+        char buf[max_line];
+        Rio_t w(fd);
+        w.rio_writen((void *)r.headline.c_str(), r.headline.size());
+        for (auto x : r.headers)
+        {
+            sprintf(buf, "%s: %s", x.first.c_str(), x.second.c_str());
             w.rio_writen((void *)buf, strlen(buf));
         }
         sprintf(buf, "\r\n");
@@ -156,34 +189,36 @@ void doit(int client_fd)
         printf("[Err] Connection failed getStream\n");
         return;
     }
-    int r = clientStream->getRequest(); 
+    auto req_ptr = clientStream->getRequest(); 
+    if (!req_ptr) {
+        printf("[Err] Connection failed at get reqeust.\n");
+        return;
+    }
+    auto req = req_ptr.value();
     endserver_fd = Open_clientfd(clientStream->hostname.c_str(), std::to_string(clientStream->port).c_str());
     if (endserver_fd < 0)
     {
         printf("[Err] Connection failed at open endserver_fd\n");
         return;
     }
-    Rio_t to_endserver(endserver_fd);
-    if (r < 0) {
-        printf("[Err] Connection failed at get reqeust.\n");
-    }
-    clientStream->headers["User-Agent"] = user_agent_hdr;
-    clientStream->headers["Connection"] = conn_hdr;
-    clientStream->headers["Proxy-Connection"] = proxy_hdr;
-    printf("Headers built. 1.2\n"); 
-    HttpStream::send_requesthdrs(endserver_fd, clientStream->headers, clientStream->path.c_str());
+    auto serverStream = HttpStream::generateStream(endserver_fd);
+    req.headers["User-Agent"] = user_agent_hdr;
+    req.headers["Connection"] = conn_hdr;
+    req.headers["Proxy-Connection"] = proxy_hdr;
+    HttpStream::sendReqeust(endserver_fd, req);
 
-    printf("Headers built. 2\n"); 
-    int n;
-    string buf;
-    while ((n = to_endserver.rio_readlineb(buf))) {//real server response to buf
-        clientStream->fd.rio_writen((void*)buf.c_str(), n);
+    auto r = serverStream->getResponse().value(); 
+    HttpStream::sendResponse(client_fd, r);
+    int n; string buf;
+    while ((n = serverStream->fd.rio_readlineb(buf)))
+    {
+        clientStream->fd.rio_writen((void *)buf.c_str(), n);
     }
-    printf("Headers built. 3\n"); 
     Close(endserver_fd);
 }
 
-void parse_uri(char *uri, char *hostname, char *path, int *port) {
+void parse_uri(char *uri, char *hostname, char *path, int *port)
+{
     *port = 80;
     char *pos1 = strstr(uri, "//");
     if (pos1 == NULL)
@@ -211,4 +246,3 @@ void parse_uri(char *uri, char *hostname, char *path, int *port) {
         strncpy(path, pos2, max_line);
     }
 }
-

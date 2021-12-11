@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <map>
 
 #include <sys/socket.h>
 #include "general.hpp"
@@ -35,6 +36,27 @@ public:
     ssize_t rio_writen(const void *usrbuf, size_t n, int flags = 0);
 };
 
+class Request
+{
+public: 
+    string method;
+    string host;
+    string url;
+    string http_proto = "HTTP/1.1";   // http/1.x
+    string hostname;
+    string path;
+    //Includs \r\n in the latter string
+    std::map<string,string> headers; // string + \r\n ?
+};
+
+class Response
+{
+public:
+    string headline; 
+    string version, code, status;
+    std::map<string,string> headers;
+};
+
 /*
 class Path
 {
@@ -51,36 +73,7 @@ public:
     bool is_closed() const;
 };
 
-class Request
-{
-public: 
-    string method;
-    string host;
-    string url;
-    string http_proto = "HTTP/1.1";   // http/1.x
-    string request_line; // method url http_proto
 
-    vector<string> header; // string + \r\n ?
-
-    int send(Rio_ptr p, const uint8_t* body, int body_len) ;   // send a http request, return < 0 means failed
-    static Request_ptr recv(Rio_t *rio_t, vector<uint8_t>& req_body);    // return nullptr means failed
-};
-
-class Response
-{
-public:
-    string http_proto;
-    string status_code;
-    string status_msg;
-    string response_line; // http_proto status_code status_msg
-
-    vector<string> header;
-    //vector<uint8_t> body;
-
-    //  give a http response, return < 0 means failure
-    int send(int fd, const uint8_t* body, int body_len) const; 
-    static Response_ptr recv(Rio_t *rio_t); // return nullptr means failed
-};
 */
 
 int Accept(int s, struct sockaddr *addr, socklen_t *addrlen);
