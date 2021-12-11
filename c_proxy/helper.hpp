@@ -20,21 +20,22 @@ using Rio_ptr = std::shared_ptr<Rio_t>;
 
 class Rio_t
 {
-public:
+private:
     int rio_fd;                    /* Descriptor for this internal buf */
     int rio_cnt;                   /* Unread bytes in internal buf */
     char *rio_bufptr;              /* Next unread byte in internal buf */
     char rio_buf[rio_buffer_size]; /* Internal buffer */
 
+public:
     Rio_t(int fd);
 
     ssize_t rio_readlineb(string &usrbuf);
     ssize_t rio_readnb(vector<uint8_t> &usrbuf, size_t n);
     ssize_t rio_read(void *usr_buf, size_t n);
-
-    ssize_t rio_writen(void *usrbuf, size_t n, int flags);
+    ssize_t rio_writen(const void *usrbuf, size_t n, int flags = 0);
 };
 
+/*
 class Path
 {
 public:
@@ -80,11 +81,14 @@ public:
     int send(int fd, const uint8_t* body, int body_len) const; 
     static Response_ptr recv(Rio_t *rio_t); // return nullptr means failed
 };
+*/
 
 int Accept(int s, struct sockaddr *addr, socklen_t *addrlen);
-int Open_listenfd(char *ip_addr, char *port);
+int Open_listenfd(const char *port);
+int Open_listenfd(const char *port);
 void Close(int fd);
 void Getnameinfo(const struct sockaddr *sa, socklen_t salen, char *host, 
                  size_t hostlen, char *serv, size_t servlen, int flags);
+int Open_clientfd(const char *hostname, const char *port);
 #endif
 

@@ -10,14 +10,14 @@ LDFLAGS = -lpthread
 
 all: proxy
 
-csapp.o: csapp.c csapp.h
-	$(CC) $(CFLAGS) -c csapp.c
+helper.o: helper.cpp helper.hpp
+	$(CC) $(CFLAGS) -c helper.cpp
 
 proxy.o: proxy.cpp
 	$(CC) $(CFLAGS) -c proxy.cpp
 
-proxy: proxy.o csapp.o 
-	$(CC) $(CFLAGS) proxy.o csapp.o -o proxy $(LDFLAGS)
+proxy: proxy.o helper.o
+	$(CC) $(CFLAGS) proxy.o helper.o -o proxy $(LDFLAGS)
 
 clean:
 	rm -f *~ *.o proxy core *.tar *.zip *.gzip *.bzip *.gz

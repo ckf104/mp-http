@@ -2,7 +2,8 @@
 #include <iostream>
 #include <regex>
 #include <map>
-#include "csapp.h"
+#include "helper.hpp"
+#include "general.hpp"
 #include <string>
 #include <memory>
 #include <set>
@@ -26,13 +27,14 @@ using StreamPtr = std::unique_ptr<HttpStream>;
 struct HttpStream {
 public:
     map<string, string> headers;
-    rio_t fd;
+    Rio_t fd;
     string method;
     string uri; 
     string version;
     string hostname; 
     string path;
     int port;
+    HttpStream(int _fd) : fd(_fd) { }
     /**
      * @brief factory method for HttpStream
      * 
@@ -40,8 +42,7 @@ public:
      * @return if this function returns null, the stream is closed.
      */
     static StreamPtr generateStream(int _fd) {
-        auto r = std::make_unique<HttpStream>();
-        Rio_readinitb(&r->fd, _fd);
+        auto r = std::make_unique<HttpStream>(_fd);
         return r;
     }
     /**
@@ -50,13 +51,13 @@ public:
      * @return int 0 means success
      */
     int getRequest() {
-        char buf[MAXLINE], _method[MAXLINE], _uri[MAXLINE], _version[MAXLINE];
-        char _hostname[MAXLINE], _path[MAXLINE];
-        if (!Rio_readlineb(&fd, buf, MAXLINE))
-        {
-            return 1;
+        char _method[max_line], _uri[max_line], _version[max_line];
+        char _hostname[max_line], _path[max_line];
+        string buf;
+        if (!fd.rio_readlineb(buf)) {
+            return -1;
         }
-        sscanf(buf, "%s %s %s", _method, _uri, _version);
+        sscanf(buf.c_str(), "%s %s %s", _method, _uri, _version);
         method = string(_method);
         uri = string(_uri);
         version = string(_version);
@@ -73,39 +74,36 @@ public:
     }
     void build_requesthdrs()
     {
-        //TODO:update it
         headers.clear();
-        char buf[MAXLINE];
-        while (Rio_readlineb(&fd, buf, MAXLINE) > 0)
-        {
-            if (!strcmp(buf, "\r\n"))
-                break;
-            int p, len = strlen(buf);
+        string buf;
+        while (fd.rio_readlineb(buf) > 0) {
+            if (buf == "\r\n") break;
+            int p;
+            ssize_t len = buf.size();
             for (p = 0; p < len; ++p)
                 if (buf[p] == ':')
                     break;
-            if (p < len)
-            {
-                string a(buf, buf + p), b(buf + p + 1, buf + len);
-                headers[a] = b;
+            if (p < len) {
+                headers[buf.substr(0, p)] = buf.substr(p + 1, len);
             }
         }
     }
     static void send_requesthdrs(int fd, const std::map<string, string> &headers, const char *path)
     {
-        char buf[MAXLINE];
+        char buf[max_line];
         sprintf(buf, "GET %s HTTP/1.1\r\n", path);
-        Rio_writen(fd, buf, strlen(buf));
+        Rio_t w(fd);
+        w.rio_writen((void*)buf, strlen(buf));
         for (auto x : headers)
         {
             if (x.first == "Host")
                 sprintf(buf, " %s: %s", x.first.c_str(), x.second.c_str());
             else
                 sprintf(buf, "%s: %s", x.first.c_str(), x.second.c_str());
-            Rio_writen(fd, buf, strlen(buf));
+            w.rio_writen((void *)buf, strlen(buf));
         }
         sprintf(buf, "\r\n");
-        Rio_writen(fd, buf, strlen(buf));
+        w.rio_writen((void*)buf, strlen(buf));
     }
 };
 
@@ -113,7 +111,7 @@ int main(int argc, char **argv)
 {
     int listenfd, *connfd;
     pthread_t tid;
-    char hostname[MAXLINE], port[MAXLINE];
+    char hostname[max_line], port[max_line];
     socklen_t clientlen;
     struct sockaddr_storage clientaddr;
 
@@ -123,18 +121,17 @@ int main(int argc, char **argv)
         fprintf(stderr, "usage: %s <port>\n", argv[0]);
         exit(1);
     }
-    signal(SIGPIPE, SIG_IGN);
     listenfd = Open_listenfd(argv[1]);
     while (1)
     {
         clientlen = sizeof(clientaddr);
-        connfd = (int*)Malloc(sizeof(int));
-        *connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
+        connfd = (int*)malloc(sizeof(int));
+        *connfd = Accept(listenfd, (sockaddr *)&clientaddr, &clientlen);
 
-        Getnameinfo((SA *)&clientaddr, clientlen, hostname, MAXLINE,
-                    port, MAXLINE, 0);
+        Getnameinfo((sockaddr *)&clientaddr, clientlen, hostname, max_line,
+                    port, max_line, 0);
         printf("Accepted connection from (%s:%s)\n", hostname, port);
-        Pthread_create(&tid, NULL, Thread, connfd);
+        pthread_create(&tid, NULL, Thread, connfd);
     }
     Close(listenfd);
     return 0;
@@ -144,8 +141,8 @@ int main(int argc, char **argv)
 void *Thread(void *vargp)
 {
     int connfd = *((int *)vargp);
-    Pthread_detach(pthread_self());
-    Free(vargp);
+    pthread_detach(pthread_self());
+    free(vargp);
     doit(connfd);
     Close(connfd);
     return NULL;
@@ -154,7 +151,6 @@ void *Thread(void *vargp)
 void doit(int client_fd)
 {
     int endserver_fd;
-    rio_t to_endserver;
     auto clientStream = HttpStream::generateStream(client_fd);
     if (!clientStream) {
         printf("[Err] Connection failed getStream\n");
@@ -167,7 +163,7 @@ void doit(int client_fd)
         printf("[Err] Connection failed at open endserver_fd\n");
         return;
     }
-    Rio_readinitb(&to_endserver, endserver_fd);
+    Rio_t to_endserver(endserver_fd);
     if (r < 0) {
         printf("[Err] Connection failed at get reqeust.\n");
     }
@@ -178,12 +174,10 @@ void doit(int client_fd)
     HttpStream::send_requesthdrs(endserver_fd, clientStream->headers, clientStream->path.c_str());
 
     printf("Headers built. 2\n"); 
-    int n, end = 0, sum = 0;
-    char data[MAX_OBJECT_SIZE], buf[MAXLINE];
-    while ((n = Rio_readlineb(&to_endserver, buf, MAXLINE))) {//real server response to buf
-        if (end) sum += n;
-        if (!strcmp(buf, "\r\n")) end = 1;
-        Rio_writen(client_fd, buf, n);  //real server response to real client
+    int n;
+    string buf;
+    while ((n = to_endserver.rio_readlineb(buf))) {//real server response to buf
+        clientStream->fd.rio_writen((void*)buf.c_str(), n);
     }
     printf("Headers built. 3\n"); 
     Close(endserver_fd);
@@ -199,7 +193,7 @@ void parse_uri(char *uri, char *hostname, char *path, int *port) {
     char *pos2 = strstr(pos1, ":");
     if (pos2 != NULL) {
         *pos2 = '\0'; 
-        strncpy(hostname, pos1, MAXLINE);
+        strncpy(hostname, pos1, max_line);
         sscanf(pos2 + 1, "%d%s", port, path); 
         *pos2 = ':';
     }
@@ -207,14 +201,14 @@ void parse_uri(char *uri, char *hostname, char *path, int *port) {
         pos2 = strstr(pos1, "/"); //pos2 /hub/index.html
         if (pos2 == NULL)
         { /*pos1 www.cmu.edu*/
-            strncpy(hostname, pos1, MAXLINE);
+            strncpy(hostname, pos1, max_line);
             strcpy(path, "");
             return;
         }
         *pos2 = '\0';
-        strncpy(hostname, pos1, MAXLINE);
+        strncpy(hostname, pos1, max_line);
         *pos2 = '/';
-        strncpy(path, pos2, MAXLINE);
+        strncpy(path, pos2, max_line);
     }
 }
 

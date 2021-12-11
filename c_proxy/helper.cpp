@@ -32,7 +32,7 @@ ssize_t Rio_t::rio_read(void *usrbuf, size_t n)
 
     /* Copy min(n, rp->rio_cnt) bytes from internal buf to user buf */
     cnt = n;
-    if (rio_cnt < n)
+    if (rio_cnt < (int)n)
         cnt = rio_cnt;
     memcpy(usrbuf, rio_bufptr, cnt);
     rio_bufptr += cnt;
@@ -61,42 +61,23 @@ ssize_t Rio_t::rio_readnb(vector<uint8_t> &usrbuf, size_t n)
 
 ssize_t Rio_t::rio_readlineb(string &usrbuf)
 {
-    int n, rc, base = 0;
-    while (++base)
+    usrbuf.clear();
+    int rc; char c;
+    while (true)
     {
-        usrbuf.reserve(base * init_str_len + 1);
-        char c, *bufp = (char *)usrbuf.c_str() + (base - 1) * init_str_len;
-
-        for (n = 0; n < init_str_len; n++)
-        {
-            if ((rc = rio_read(&c, 1)) == 1)
-            {
-                *bufp++ = c;
-                if (c == '\n')
-                {
-                    n++;
-                    *bufp = 0;
-                    return n + (base - 1) * init_str_len;
-                }
-            }
-            else if (rc == 0)
-            {
-                if (n == 1)
-                    return 0; /* EOF, no data read */
-                else
-                {
-                    *bufp = 0; /* EOF, some data was read */
-                    return n + (base - 1) * init_str_len;
-                }
-            }
-            else
-                return -1; /* Error */
+        if ((rc = rio_read(&c, 1)) == 1) {
+            usrbuf += c;
+            if (c == '\n') return usrbuf.size();
+        } else if (rc == 0) {
+            return usrbuf.size();
+        } else {
+            return -1;
         }
     }
 }
 
 // don't use rio buffer
-ssize_t Rio_t::rio_writen(void *usrbuf, size_t n, int flags = 0) 
+ssize_t Rio_t::rio_writen(const void *usrbuf, size_t n, int flags) 
 {
     size_t nleft = n;
     ssize_t nwritten;
@@ -149,7 +130,7 @@ void Close(int fd)
         unix_error("Close error");
 }
 
-int Open_listenfd(char *ip_addr, char *port)
+int Open_listenfd(const char *ip_addr, const char *port)
 {
     struct addrinfo hints, *listp, *p;
     int listenfd, rc, optval = 1;
@@ -200,34 +181,102 @@ int Open_listenfd(char *ip_addr, char *port)
     return listenfd;
 }
 
+int Open_clientfd(const char *hostname, const char *port) {
+    int clientfd, rc;
+    struct addrinfo hints, *listp, *p;
+
+    /* Get a list of potential server addresses */
+    memset(&hints, 0, sizeof(struct addrinfo));
+    hints.ai_socktype = SOCK_STREAM;  /* Open a connection */
+    hints.ai_flags = AI_NUMERICSERV;  /* ... using a numeric port arg. */
+    hints.ai_flags |= AI_ADDRCONFIG;  /* Recommended for connections */
+    if ((rc = getaddrinfo(hostname, port, &hints, &listp)) != 0) {
+        fprintf(stderr, "getaddrinfo failed (%s:%s): %s\n", hostname, port, gai_strerror(rc));
+        return -2;
+    }
+  
+    /* Walk the list for one that we can successfully connect to */
+    for (p = listp; p; p = p->ai_next) {
+        /* Create a socket descriptor */
+        if ((clientfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) < 0) 
+            continue; /* Socket failed, try the next */
+
+        /* Connect to the server */
+        if (connect(clientfd, p->ai_addr, p->ai_addrlen) != -1) 
+            break; /* Success */
+        if (close(clientfd) < 0) { /* Connect failed, try another */  //line:netp:openclientfd:closefd
+            fprintf(stderr, "open_clientfd: close failed: %s\n", strerror(errno));
+            return -1;
+        } 
+    } 
+
+    /* Clean up */
+    freeaddrinfo(listp);
+    if (!p) /* All connects failed */
+        return -1;
+    else    /* The last connect succeeded */
+        return clientfd;
+}
+
+
+/*  
+ * open_listenfd - Open and return a listening socket on port. This
+ *     function is reentrant and protocol-independent.
+ *
+ *     On error, returns: 
+ *       -2 for getaddrinfo error
+ *       -1 with errno set for other errors.
+ */
+int Open_listenfd(const char *port) 
+{
+    struct addrinfo hints, *listp, *p;
+    int listenfd, rc, optval=1;
+
+    /* Get a list of potential server addresses */
+    memset(&hints, 0, sizeof(struct addrinfo));
+    hints.ai_socktype = SOCK_STREAM;             /* Accept connections */
+    hints.ai_flags = AI_PASSIVE | AI_ADDRCONFIG; /* ... on any IP address */
+    hints.ai_flags |= AI_NUMERICSERV;            /* ... using port number */
+    if ((rc = getaddrinfo(NULL, port, &hints, &listp)) != 0) {
+        fprintf(stderr, "getaddrinfo failed (port %s): %s\n", port, gai_strerror(rc));
+        return -2;
+    }
+
+    /* Walk the list for one that we can bind to */
+    for (p = listp; p; p = p->ai_next) {
+        /* Create a socket descriptor */
+        if ((listenfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) < 0) 
+            continue;  /* Socket failed, try the next */
+
+        /* Eliminates "Address already in use" error from bind */
+        setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR,    //line:netp:csapp:setsockopt
+                   (const void *)&optval , sizeof(int));
+
+        /* Bind the descriptor to the address */
+        if (bind(listenfd, p->ai_addr, p->ai_addrlen) == 0)
+            break; /* Success */
+        if (close(listenfd) < 0) { /* Bind failed, try the next */
+            fprintf(stderr, "open_listenfd close failed: %s\n", strerror(errno));
+            return -1;
+        }
+    }
+
+
+    /* Clean up */
+    freeaddrinfo(listp);
+    if (!p) /* No address worked */
+        return -1;
+
+    /* Make it a listening socket ready to accept connection requests */
+    if (listen(listenfd, 1024) < 0) {
+        close(listenfd);
+	return -1;
+    }
+    return listenfd;
+}
+
 
 Rio_t::Rio_t(int x) {
     rio_fd = x;
     rio_cnt = 0; 
 }
-
-// send a http request, return < 0 means failed
-int Request::send(Rio_ptr p, const uint8_t* body, int body_len)  {   
-    for (auto x : header) {
-        p->rio_writen((void*)x.c_str(), x.size());
-    }
-    p->rio_writen((void*)body, body_len);
-}
-
-Request_ptr Request::recv(Rio_t *rio_t, vector<uint8_t>& req_body) {
-
-}
-
-int Response::send(int fd, const uint8_t* body, int body_len) const {   
-    for (auto x : header) {
-        p->rio_writen((void*)x.c_str(), x.size());
-    }
-    p->rio_writen((void*)body, body_len);
-
-}
-
-static Response_ptr recv(Rio_t *rio_t) {
-
-}
-
-Path::Path() { }

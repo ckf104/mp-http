@@ -205,29 +205,3 @@ Rio_t::Rio_t(int x) {
     rio_fd = x;
     rio_cnt = 0; 
 }
-
-// send a http request, return < 0 means failed
-int Request::send(Rio_ptr p, const uint8_t* body, int body_len)  {   
-    for (auto x : header) {
-        p->rio_writen((void*)x.c_str(), x.size());
-    }
-    p->rio_writen((void*)body, body_len);
-}
-
-Request_ptr Request::recv(Rio_t *rio_t, vector<uint8_t>& req_body) {
-
-}
-
-int Response::send(int fd, const uint8_t* body, int body_len) const {   
-    for (auto x : header) {
-        p->rio_writen((void*)x.c_str(), x.size());
-    }
-    p->rio_writen((void*)body, body_len);
-
-}
-
-static Response_ptr recv(Rio_t *rio_t) {
-
-}
-
-Path::Path() { }
