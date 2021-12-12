@@ -64,9 +64,10 @@ public:
         r.path = string(_path);
         if (r.method != "GET")
         {
-            printf("[Error] Not implemented!.");
+            //printf("[Error] Not implemented!.\n");
             return std::nullopt;
         }
+        std::cout << r.url << " " << r.method << std::endl;
         build_requesthdrs(r.headers);
         return std::make_optional(r);
     }
@@ -117,10 +118,13 @@ public:
         w.rio_writen((void*)buf, strlen(buf));
         for (auto x : r.headers)
         {
+            /*
             if (x.first == "Host")
                 sprintf(buf, " %s: %s", x.first.c_str(), x.second.c_str());
             else
                 sprintf(buf, "%s: %s", x.first.c_str(), x.second.c_str());
+            */
+            sprintf(buf, "%s: %s", x.first.c_str(), x.second.c_str());
             w.rio_writen((void *)buf, strlen(buf));
         }
         sprintf(buf, "\r\n");
