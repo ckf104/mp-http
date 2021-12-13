@@ -7,6 +7,8 @@
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
+#include <chrono>
+#include <iostream>
 
 #include "general.hpp"
 #include "helper.hpp"
@@ -40,12 +42,13 @@ ssize_t Rio_t::rio_read(void *usrbuf, size_t n)
     return cnt;
 }
 
-ssize_t Rio_t::rio_readnb(vector<uint8_t> &usrbuf, size_t n)
+ssize_t Rio_t::rio_readnb(Body &usrbuf, size_t n)
 {
     size_t nleft = n;
     ssize_t nread;
-    usrbuf.reserve(n);
-    uint8_t *bufp = usrbuf.data();
+    usrbuf.content.reset(new uint8_t[n]);
+    usrbuf.length = n;
+    uint8_t *bufp = usrbuf.content.get();
 
     while (nleft > 0)
     {
@@ -62,22 +65,29 @@ ssize_t Rio_t::rio_readnb(vector<uint8_t> &usrbuf, size_t n)
 ssize_t Rio_t::rio_readlineb(string &usrbuf)
 {
     usrbuf.clear();
-    int rc; char c;
+    int rc;
+    char c;
     while (true)
     {
-        if ((rc = rio_read(&c, 1)) == 1) {
+        if ((rc = rio_read(&c, 1)) == 1)
+        {
             usrbuf += c;
-            if (c == '\n') return usrbuf.size();
-        } else if (rc == 0) {
+            if (c == '\n')
+                return usrbuf.size();
+        }
+        else if (rc == 0)
+        {
             return usrbuf.size();
-        } else {
+        }
+        else
+        {
             return -1;
         }
     }
 }
 
 // don't use rio buffer
-ssize_t Rio_t::rio_writen(const void *usrbuf, size_t n, int flags) 
+ssize_t Rio_t::rio_writen(const void *usrbuf, size_t n, int flags)
 {
     size_t nleft = n;
     ssize_t nwritten;
@@ -85,7 +95,7 @@ ssize_t Rio_t::rio_writen(const void *usrbuf, size_t n, int flags)
 
     while (nleft > 0)
     {
-        if ((nwritten = send(rio_fd, bufp, nleft, flags)) <= 0)
+        if ((nwritten = send(rio_fd, bufp, nleft, flags | MSG_NOSIGNAL)) <= 0)
         {
             if (errno == EINTR) /* Interrupted by sig handler return */
                 nwritten = 0;   /* and call write() again */
@@ -98,13 +108,18 @@ ssize_t Rio_t::rio_writen(const void *usrbuf, size_t n, int flags)
     return n;
 }
 
+Rio_t::operator bool()
+{
+    return rio_fd != 0;
+}
+
 void unix_error(const char *msg) /* Unix-style error */
 {
     fprintf(stderr, "%s: %s\n", msg, strerror(errno));
     exit(0);
 }
 
-void Getnameinfo(const struct sockaddr *sa, socklen_t salen, char *host, 
+void Getnameinfo(const struct sockaddr *sa, socklen_t salen, char *host,
                  size_t hostlen, char *serv, size_t servlen, int flags)
 {
     int rc;
@@ -181,43 +196,49 @@ int Open_listenfd(const char *ip_addr, const char *port)
     return listenfd;
 }
 
-int Open_clientfd(const char *hostname, const char *port) {
+// use latency to record time of three-handshakes
+int Open_clientfd(const char *hostname, const char *port, uint *latency)
+{
     int clientfd, rc;
     struct addrinfo hints, *listp, *p;
 
     /* Get a list of potential server addresses */
     memset(&hints, 0, sizeof(struct addrinfo));
-    hints.ai_socktype = SOCK_STREAM;  /* Open a connection */
-    hints.ai_flags = AI_NUMERICSERV;  /* ... using a numeric port arg. */
-    hints.ai_flags |= AI_ADDRCONFIG;  /* Recommended for connections */
-    if ((rc = getaddrinfo(hostname, port, &hints, &listp)) != 0) {
+    hints.ai_socktype = SOCK_STREAM; /* Open a connection */
+    hints.ai_flags = AI_NUMERICSERV; /* ... using a numeric port arg. */
+    hints.ai_flags |= AI_ADDRCONFIG; /* Recommended for connections */
+    if ((rc = getaddrinfo(hostname, port, &hints, &listp)) != 0)
+    {
         fprintf(stderr, "getaddrinfo failed (%s:%s): %s\n", hostname, port, gai_strerror(rc));
         return -2;
     }
-  
+
     /* Walk the list for one that we can successfully connect to */
-    for (p = listp; p; p = p->ai_next) {
+    for (p = listp; p; p = p->ai_next)
+    {
         /* Create a socket descriptor */
-        if ((clientfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) < 0) 
+        if ((clientfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) < 0)
             continue; /* Socket failed, try the next */
 
         /* Connect to the server */
-        if (connect(clientfd, p->ai_addr, p->ai_addrlen) != -1) 
+        auto now = std::chrono::system_clock::now();
+        if (connect(clientfd, p->ai_addr, p->ai_addrlen) != -1)
             break; /* Success */
-        if (close(clientfd) < 0) { /* Connect failed, try another */  //line:netp:openclientfd:closefd
+        *latency = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - now).count();
+        if (close(clientfd) < 0)
+        { /* Connect failed, try another */ //line:netp:openclientfd:closefd
             fprintf(stderr, "open_clientfd: close failed: %s\n", strerror(errno));
             return -1;
-        } 
-    } 
+        }
+    }
 
     /* Clean up */
     freeaddrinfo(listp);
     if (!p) /* All connects failed */
         return -1;
-    else    /* The last connect succeeded */
+    else /* The last connect succeeded */
         return clientfd;
 }
-
 
 /*  
  * open_listenfd - Open and return a listening socket on port. This
@@ -227,40 +248,42 @@ int Open_clientfd(const char *hostname, const char *port) {
  *       -2 for getaddrinfo error
  *       -1 with errno set for other errors.
  */
-int Open_listenfd(const char *port) 
+int Open_listenfd(const char *port)
 {
     struct addrinfo hints, *listp, *p;
-    int listenfd, rc, optval=1;
+    int listenfd, rc, optval = 1;
 
     /* Get a list of potential server addresses */
     memset(&hints, 0, sizeof(struct addrinfo));
     hints.ai_socktype = SOCK_STREAM;             /* Accept connections */
     hints.ai_flags = AI_PASSIVE | AI_ADDRCONFIG; /* ... on any IP address */
     hints.ai_flags |= AI_NUMERICSERV;            /* ... using port number */
-    if ((rc = getaddrinfo(NULL, port, &hints, &listp)) != 0) {
+    if ((rc = getaddrinfo(NULL, port, &hints, &listp)) != 0)
+    {
         fprintf(stderr, "getaddrinfo failed (port %s): %s\n", port, gai_strerror(rc));
         return -2;
     }
 
     /* Walk the list for one that we can bind to */
-    for (p = listp; p; p = p->ai_next) {
+    for (p = listp; p; p = p->ai_next)
+    {
         /* Create a socket descriptor */
-        if ((listenfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) < 0) 
-            continue;  /* Socket failed, try the next */
+        if ((listenfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) < 0)
+            continue; /* Socket failed, try the next */
 
         /* Eliminates "Address already in use" error from bind */
-        setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR,    //line:netp:csapp:setsockopt
-                   (const void *)&optval , sizeof(int));
+        setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, //line:netp:csapp:setsockopt
+                   (const void *)&optval, sizeof(int));
 
         /* Bind the descriptor to the address */
         if (bind(listenfd, p->ai_addr, p->ai_addrlen) == 0)
             break; /* Success */
-        if (close(listenfd) < 0) { /* Bind failed, try the next */
+        if (close(listenfd) < 0)
+        { /* Bind failed, try the next */
             fprintf(stderr, "open_listenfd close failed: %s\n", strerror(errno));
             return -1;
         }
     }
-
 
     /* Clean up */
     freeaddrinfo(listp);
@@ -268,15 +291,16 @@ int Open_listenfd(const char *port)
         return -1;
 
     /* Make it a listening socket ready to accept connection requests */
-    if (listen(listenfd, 1024) < 0) {
+    if (listen(listenfd, 1024) < 0)
+    {
         close(listenfd);
-	return -1;
+        return -1;
     }
     return listenfd;
 }
 
-
-Rio_t::Rio_t(int x) {
+Rio_t::Rio_t(int x)
+{
     rio_fd = x;
-    rio_cnt = 0; 
+    rio_cnt = 0;
 }
