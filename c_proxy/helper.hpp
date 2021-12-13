@@ -97,5 +97,6 @@ void Close(int fd);
 void Getnameinfo(const struct sockaddr *sa, socklen_t salen, char *host, 
                  size_t hostlen, char *serv, size_t servlen, int flags);
 int Open_clientfd(const char *hostname, const char *port, uint* latency);
+ssize_t writen(int rio_fd, const void *usrbuf, size_t n);
 #endif
 

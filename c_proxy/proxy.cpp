@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <poll.h>
+#include <unistd.h>
 #include <cstdint>
 #include <future>
 #include <iostream>
@@ -23,6 +25,8 @@ static const char *proxy_hdr = "close\r\n";*/
 static string range_header("Range");
 static string host_header("Host");
 static string content_len_hdr("Content-Length");
+static string connect_response("HTTP/1.1 200 Connection established\r\n\r\n");
+static string connect_method("CONNECT");
 
 extern char **environ;
 struct HttpStream;
@@ -32,6 +36,8 @@ void doit(int fd);
 void clienterror(int fd, const char *cause, const char *errnum, const char *shortmsg, const char *longmsg);
 void parse_uri(char *uri, char *hostname, char *path, int *port);
 void *Thread(void *vargp);
+void do_relay(HttpStream *client);
+
 mp_http need_mp_http(const Request &req, std::pair<uint64_t, uint64_t> &range);
 std::optional<Response> send_normal_request(StreamPtr &client, StreamPtr (&servers)[path_num], const Request &client_req, Body &req_body, Body &reply_body);
 std::optional<Response> send_mp_request();
@@ -278,6 +284,11 @@ void doit(int client_fd)
             break;
         }
         decltype(auto) req = req_ptr.value();
+        if (req.method == connect_method)
+        {
+            do_relay(clientStream.get());
+            break;
+        }
         std::pair<uint64_t, uint64_t> byte_range{0, 0};
         std::optional<Response> response;
         auto mp_http_type = mp_http::not_use;
@@ -375,6 +386,42 @@ std::optional<Response> send_mp_request(StreamPtr &client, StreamPtr (&servers)[
                                         Body &req_body, Body &reply_body, mp_http type, const std::pair<uint64_t, uint64_t> &byte_range)
 {
     return send_normal_request(client, servers, client_req, req_body, reply_body);
+}
+
+void do_relay(HttpStream *client)
+{
+    uint latency;
+    int byte_count;
+    auto server_fd = Open_clientfd(client->hostname.c_str(), std::to_string(client->port).c_str(), &latency);
+    if (server_fd < 0)
+        return;
+    client->fd.rio_writen(connect_response.c_str(), connect_response.size()); // send connect response
+
+    pollfd fd_pool[2]; // fd_pool[0] -> client, fd_pool[1] -> server
+    fd_pool[0].fd = client->fd.rio_fd;
+    fd_pool[0].events = POLLIN;
+    fd_pool[0].revents = 0;
+    fd_pool[1].fd = server_fd;
+    fd_pool[1].events = POLLIN;
+    fd_pool[1].revents = 0;
+    char buf[max_line];
+
+    while (poll(fd_pool, 2, -1) >= 0) // -1 means no timeout
+    {
+        for (int i = 0; i < 2; ++i)
+        {
+            if (fd_pool[i].revents & POLLIN)
+            {
+                byte_count = read(fd_pool[i].fd, buf, max_line);
+                if (writen(fd_pool[1 - i].fd, buf, byte_count) < 0)
+                    break;
+            }
+        }
+        if (!(fd_pool[0].revents & POLLIN) && (fd_pool[0].revents & POLLHUP) &&
+            !(fd_pool[1].revents & POLLIN) && (fd_pool[1].revents & POLLHUP))
+            break;
+    }
+    Close(server_fd);
 }
 
 void parse_uri(char *uri, char *hostname, char *path, int *port)

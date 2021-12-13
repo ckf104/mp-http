@@ -304,3 +304,24 @@ Rio_t::Rio_t(int x)
     rio_fd = x;
     rio_cnt = 0;
 }
+
+ssize_t writen(int rio_fd, const void *usrbuf, size_t n)
+{
+    size_t nleft = n;
+    ssize_t nwritten;
+    char *bufp = (char *)usrbuf;
+
+    while (nleft > 0)
+    {
+        if ((nwritten = send(rio_fd, bufp, nleft, MSG_NOSIGNAL)) <= 0)
+        {
+            if (errno == EINTR) /* Interrupted by sig handler return */
+                nwritten = 0;   /* and call write() again */
+            else
+                return -1; /* errno set by write() */
+        }
+        nleft -= nwritten;
+        bufp += nwritten;
+    }
+    return n;
+}
