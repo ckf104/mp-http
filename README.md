@@ -9,8 +9,7 @@
 
 ## TODO
 
-* 一个http代理调度器
-* 目前播放`media_src\single`下的视频会发生未知错误
+* 实现c_proxy下的send_mp_request函数
 
 ## TEST
 * google-chrome -proxy-server=http://localhost:32345
