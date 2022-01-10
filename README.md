@@ -7,9 +7,12 @@
 * `index.html` 和 `style.css`是客户端播放器
 * `cpp_proxy`下是所有的proxy代码，`general.hpp`存放所有需要的常量，`helper.cpp`是相关的辅助函数，`proxy.cpp`是监听套接字的主函数，`scheduler.cpp`实际处理连接。
 
+
+
 ## TODO
 
-* 实现c_proxy下的send_mp_request函数
+* c_proxy下实现了一个简易的send_mp_request函数，不会进行二次请求(一方完成后等待另一方完成而不会发起新请求)，且只考虑了有range header的情况。不过聚合效果不清楚。
+* 具体使用方法，运行dash-server: go run server.go 0.0.0.0 (显式指定监听地址)。运行proxy: ./proxy port [d]     如果加了第三个参赛就不会进行多路请求。  
 
 ## TEST
 * google-chrome -proxy-server=http://localhost:32345
