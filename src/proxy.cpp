@@ -299,13 +299,15 @@ void OnNewConnection(int client_fd) {
 
     for (int i = 0; i < 2; i++) {
       clients[i] = new struct MpHttpClient(&loop, &task, &address[i]);
+      clients[i]->request_header = &req;
+      clients[i]->request_body = &req_body;
     }
-
-    clients[0]->run(0, 0);
 
     for (int i = 0; i < 2; i++) {
       clients[i]->rival_ = clients[1 - i];
     }
+
+    clients[0]->run(0, 0);
 
     auto isComplete = [clients]() {
       for (int i = 0; i < 2; i++) {
@@ -321,10 +323,10 @@ void OnNewConnection(int client_fd) {
     }
 
     // TODO : send the buffer in MpTask.
-
-    // if (!clientStream.sendResponse(clientStream.fd, response.value(),
-    //                               reply_body))
-    // break;
+    if (!clientStream.fd.rio_writen((void *)task.task_buffer_.c_str(),
+                                    task.task_buffer_.size())) {
+      break;
+    }
 
     // cleanup:
     clientStream.close();

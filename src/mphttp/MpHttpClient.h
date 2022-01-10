@@ -3,6 +3,7 @@
 
 #include "HttpClient.h"
 #include "common.h"
+#include "helper.hpp"
 #include <queue>
 
 // forward declaration
@@ -80,6 +81,9 @@ struct MpHttpClient {
     }
     UpdateTask();
   }
+
+  Request *request_header;
+  std::string *request_body;
 
   struct sockaddr_in addr_in_;
 
