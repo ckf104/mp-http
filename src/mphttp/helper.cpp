@@ -36,12 +36,12 @@ ssize_t Rio_t::rio_read(void *usrbuf, size_t n) {
   return cnt;
 }
 
-ssize_t Rio_t::rio_readnb(Body &usrbuf, size_t n) {
+ssize_t Rio_t::rio_readnb(string &usrbuf, size_t n) {
   size_t nleft = n;
   ssize_t nread;
-  usrbuf.content.reset(new uint8_t[n]);
-  usrbuf.length = n;
-  uint8_t *bufp = usrbuf.content.get();
+  usrbuf.clear();
+  usrbuf.resize(n, 0);
+  uint8_t *bufp = (uint8_t *)usrbuf.c_str();
 
   while (nleft > 0) {
     if ((nread = rio_read(bufp, nleft)) < 0)

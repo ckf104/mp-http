@@ -19,11 +19,11 @@ func prog_init() *http.Server { // initialzie the server and other parameters
 	mime.AddExtensionType(".mpd", "application/dash+xml")
 
 	http.HandleFunc("/", http_handler_default)
-	http.HandleFunc("/media_src/multiple/video/", http_handler_video)
-	http.HandleFunc("/media_src/multiple/audio/", http_handler_audio)
+	http.HandleFunc("/media_src/multiple_v2/video/", http_handler_video)
+	http.HandleFunc("/media_src/multiple_v2/audio/", http_handler_audio)
 	//http.HandleFunc("/media_src/single/", http_handler_single)
 	return &http.Server{ // configuration for server, using DefaultServeMux
-		Addr:        "127.0.0.1:http",
+		Addr:        "0.0.0.0:http",
 		//Addr:        "10.100.1.2:http",
 		ReadTimeout: 120 * time.Second,
 		/*ReadTimeout is the maximum duration for reading the entire request, including the body.
