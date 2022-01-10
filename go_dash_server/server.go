@@ -8,6 +8,7 @@ import (
 	"log"
 	"mime"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 )
@@ -23,7 +24,7 @@ func prog_init() *http.Server { // initialzie the server and other parameters
 	http.HandleFunc("/media_src/multiple/audio/", http_handler_audio)
 	//http.HandleFunc("/media_src/single/", http_handler_single)
 	return &http.Server{ // configuration for server, using DefaultServeMux
-		Addr:        "127.0.0.1:http",
+		Addr: os.Args[1] + ":http",
 		//Addr:        "10.100.1.2:http",
 		ReadTimeout: 120 * time.Second,
 		/*ReadTimeout is the maximum duration for reading the entire request, including the body.
@@ -131,6 +132,10 @@ err_status:
 
 func main() {
 	var err error
+	if len(os.Args) != 2 {
+		fmt.Println("server ip addr needed")
+		return
+	}
 	err = prog_init().ListenAndServe()
 	log.Println(err)
 }

@@ -38,16 +38,33 @@
 			//var url = "https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd"
 			timestamp = 0
 			if (stall_count.length !== 0) {
+				console.log("stall:\n")
 				console.log(stall_count.slice())
 				stall_count = []
 			}
 			if (bitrate_count.length !== 0) {
+				console.log("bitrate:\n")
 				console.log(bitrate_count.slice())
+				console.log(eval(bitrate_count.join("+")))
 				bitrate_count = []
 			}
 			player.initialize(document.querySelector("#videoPlayer"), document.querySelector("#mpd_url").value, false)
 			player.on(dashjs.MediaPlayer.events.PLAYBACK_PAUSED, stall_handler)
 			player.on(dashjs.MediaPlayer.events.PLAYBACK_PLAYING, stall_handler)
+			let video_ele = document.querySelector('#videoPlayer')
+			let last = video_ele.webkitVideoDecodedByteCount
+
+			interval_id = setInterval(() => {
+				let metrix = player.getDashMetrics()
+				video_ele = document.querySelector('#videoPlayer')
+				let real_bitrate = document.querySelector(".bitrate")
+				let resolution = document.querySelector(".resolution")
+
+				real_bitrate.innerHTML = `${Math.round((video_ele.webkitVideoDecodedByteCount - last) / 5000 * 8)} Kbps`
+				resolution.innerHTML = `${video_ele.videoWidth} x ${video_ele.videoHeight}`
+				bitrate_count.push(video_ele.webkitVideoDecodedByteCount - last)
+				last = video_ele.webkitVideoDecodedByteCount
+			}, 5000)
 		}
 
 		function stall_handler(e) {
@@ -60,22 +77,6 @@
 				let now = new Date()
 				stall_count.push(now.getTime() - timestamp)
 				//console.log(`diff : ${now.getTime() - timestamp}ms`)
-			}
-			else if (e.type === dashjs.MediaPlayer.events.PLAYBACK_PLAYING && timestamp === 0) {
-				let video_ele = document.querySelector('#videoPlayer')
-				let last = video_ele.webkitVideoDecodedByteCount
-
-				interval_id = setInterval(() => {
-					let metrix = player.getDashMetrics()
-					video_ele = document.querySelector('#videoPlayer')
-					let real_bitrate = document.querySelector(".bitrate")
-					let resolution = document.querySelector(".resolution")
-
-					real_bitrate.innerHTML = `${Math.round((video_ele.webkitVideoDecodedByteCount - last) / 1000 * 8)} Kbps`
-					resolution.innerHTML = `${video_ele.videoWidth} x ${video_ele.videoHeight}`
-					bitrate_count.push(video_ele.webkitVideoDecodedByteCount - last)
-					last = video_ele.webkitVideoDecodedByteCount
-				}, 1000)
 			}
 		}
 	</script>

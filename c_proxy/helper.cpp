@@ -197,7 +197,7 @@ int Open_listenfd(const char *ip_addr, const char *port)
 }
 
 // use latency to record time of three-handshakes
-int Open_clientfd(const char *hostname, const char *port, uint *latency)
+int Open_clientfd(const char *hostname, const char *port, uint* latency, uint* ip_addr)
 {
     int clientfd, rc;
     struct addrinfo hints, *listp, *p;
@@ -216,14 +216,16 @@ int Open_clientfd(const char *hostname, const char *port, uint *latency)
     /* Walk the list for one that we can successfully connect to */
     for (p = listp; p; p = p->ai_next)
     {
-        /* Create a socket descriptor */
+        /* Create a socket descriptor */      
         if ((clientfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) < 0)
             continue; /* Socket failed, try the next */
 
         /* Connect to the server */
         auto now = std::chrono::system_clock::now();
-        if (connect(clientfd, p->ai_addr, p->ai_addrlen) != -1)
+        if (connect(clientfd, p->ai_addr, p->ai_addrlen) != -1){
+            *ip_addr = ((sockaddr_in*)p->ai_addr)->sin_addr.s_addr;                      
             break; /* Success */
+        }
         *latency = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - now).count();
         if (close(clientfd) < 0)
         { /* Connect failed, try another */ //line:netp:openclientfd:closefd
@@ -303,6 +305,9 @@ Rio_t::Rio_t(int x)
 {
     rio_fd = x;
     rio_cnt = 0;
+}
+size_t Rio_t::rio_get_rest(){
+    return rio_cnt;
 }
 
 ssize_t writen(int rio_fd, const void *usrbuf, size_t n)

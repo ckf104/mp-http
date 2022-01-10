@@ -19,6 +19,7 @@ using Request_ptr = std::unique_ptr<Request>;
 using Response_ptr = std::unique_ptr<Response>;
 using Rio_ptr = std::shared_ptr<Rio_t>;
 
+
 enum class mp_http{
     not_use,
     has_range_header,   // use mp_http
@@ -46,6 +47,7 @@ public:
     ssize_t rio_readnb(Body& buf, size_t n);
     ssize_t rio_read(void *usr_buf, size_t n);
     ssize_t rio_writen(const void *usrbuf, size_t n, int flags = 0);
+    size_t rio_get_rest();
     operator bool();   // return rio_fd != 0 ?
 };
 
@@ -96,7 +98,7 @@ int Open_listenfd(const char *port);
 void Close(int fd);
 void Getnameinfo(const struct sockaddr *sa, socklen_t salen, char *host, 
                  size_t hostlen, char *serv, size_t servlen, int flags);
-int Open_clientfd(const char *hostname, const char *port, uint* latency);
+int Open_clientfd(const char *hostname, const char *port, uint* latency, uint* ip_addr);
 ssize_t writen(int rio_fd, const void *usrbuf, size_t n);
 #endif
 
