@@ -6,6 +6,33 @@
 
 #include <cstring>
 
+void HttpClient::constructRangeHeader(size_t start, size_t end) {
+  // construct range request for this HttpClient
+  std::string range_request;
+  if (end > 0) {
+    range_request =
+        "bytes=" + std::to_string(start) + "-" + std::to_string(end);
+  } else {
+    range_request = "bytes=" + std::to_string(start) + "-";
+  }
+
+  bool found_range = false;
+  // FIXME : append what ?
+  output_buffer.append(" ");
+  for (auto &header : mp_->request_header->headers) {
+    if (header.first != "Range") {
+      // FIXME : necessary?
+      output_buffer.append(header.first + ": " + header.second + "\r\n");
+    } else {
+      output_buffer.append(header.first + ": " + range_request + "\r\n");
+    }
+  }
+  if (!found_range) {
+    output_buffer.append("Range: " + range_request + "\r\n");
+  }
+  output_buffer.append("\r\n" + *mp_->request_body);
+}
+
 bool HttpClient::processResponseLine(const char *begin, const char *end) {
   bool succeed = true;
   std::string response_line(begin, end);
@@ -53,8 +80,6 @@ bool HttpClient::parseResponse(timestamp_t receiveTime) {
           }
           response_.addHeader(field, value);
         } else {
-          // empty line, end of header
-          // FIXME:
           read_state = kGetAllHeaders;
           hasMore = false;
         }
@@ -63,7 +88,6 @@ bool HttpClient::parseResponse(timestamp_t receiveTime) {
         hasMore = false;
       }
     } else if (read_state == kReadingBody) {
-      // FIXME:
       return ok;
     }
   }
@@ -75,22 +99,21 @@ void HttpClient::onGetAllHeaders() {
     std::string result =
         std::move(response_.getHeader(std::string("Content-Range")));
     size_t start = 0, end = 0, file_size = 0;
-    bool get_size = false;
     if (result != "") {
       // TODO : prefetch
-      if (sscanf(result.c_str(), "%zu-%zu/%zu", &start, &end, &file_size) < 2 &&
-          (end == 0)) {
+      if (sscanf(result.c_str(), "%zu-%zu/%zu", &start, &end, &file_size) < 3) {
         MPHTTP_LOG(error, "HttpClient GetSize() : fail to get "
                           "Content-Range from response\n");
         return;
       } else {
         range.start = start;
         range.end = end;
-        task_buffer_->setFileSize(start, end);
+        task_buffer_->setContentRange(start, end);
+        task_buffer_->setFileSize(file_size);
         mp_->rival_->reschedule();
       }
     }
-    task_buffer_->prependResponse(response_);
+    task_buffer_->setResponse(response_);
   }
 }
 
@@ -120,7 +143,6 @@ void HttpClient::onBody(size_t recv_bytes, timestamp_t recv_time) {
     is_close = true;
     CloseCallback();
     mp_->resetTaskQueue(this);
-    end = range.end;
   }
 }
 
@@ -173,7 +195,6 @@ void HttpClient::WritableCallback(timestamp_t now) {
     send_time_ = now;
   }
   if (write_state == kWritingRequest) {
-    // TODO : write until EAGAIN
     ssize_t n =
         write(sock_fd, output_buffer.peek(), output_buffer.readableBytes());
     if (n > 0) {
@@ -189,13 +210,13 @@ void HttpClient::WritableCallback(timestamp_t now) {
   }
 }
 
-// @brief : the close callback to close me (:
+// @brief : the close callback
 void HttpClient::CloseCallback() {
   loop_->enqueueCallback([this]() {
     // refcnt decreases to zero, sock_fd would be unregistered from the event
     // loop automatically.
     close(sock_fd);
-    // FIXME : delete this could be dangerous (:
+    // FIXME : delete this could be dangerous
     delete this;
   });
 }

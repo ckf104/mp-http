@@ -2,8 +2,9 @@
 
 void MpHttpClient::run(size_t start, size_t end) {
   if (tasks_.running == nullptr) {
-    tasks_.running =
+    struct HttpClient *client =
         new HttpClient(loop_, this, mp_task_, addr_in_, start, end);
+    tasks_.running = client;
   }
 }
 
@@ -56,8 +57,6 @@ void MpHttpClient::reschedule() {
     tasks_.next =
         new HttpClient(loop_, this, mp_task_, addr_in_, new_end, other_end);
 
-    // if this is initially steal work from others, we need to adjust the
-    // task queue
     UpdateTask();
   }
 }

@@ -36,7 +36,6 @@ enum WritableState {
 };
 
 struct HttpClient {
-  // TODO : socket address and socket port
   HttpClient(EventLoop *loop, MpHttpClient *mp, MpTask *task_buffer,
              struct sockaddr_in addr_in, size_t start, size_t end)
       : loop_(loop), mp_(mp), task_buffer_(task_buffer), server_addr_(addr_in),
@@ -54,7 +53,11 @@ struct HttpClient {
 
     MPHTTP_ASSERT(loop_->registerEvent(sock_fd, EPOLLIN | EPOLLOUT, this) != -1,
                   "HttpClient : socket %d add into epoll fail\n", sock_fd);
+
+    constructRangeHeader(start, end);
   }
+
+  void constructRangeHeader(size_t start, size_t end);
 
   bool processResponseLine(const char *begin, const char *end);
 
@@ -131,9 +134,8 @@ struct HttpClient {
   // @brief : the close callback for MpHttpClient to close me (:
   void CloseCallback();
 
-  //
+  // server address
   struct sockaddr_in server_addr_;
-
   // request time
   timestamp_t send_time_;
 

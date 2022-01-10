@@ -197,9 +197,6 @@ int Open_clientfd(const char *hostname, const char *port, uint *latency) {
     auto now = std::chrono::system_clock::now();
     if (connect(clientfd, p->ai_addr, p->ai_addrlen) != -1)
       break; /* Success */
-    *latency = std::chrono::duration_cast<std::chrono::milliseconds>(
-                   std::chrono::system_clock::now() - now)
-                   .count();
     if (close(clientfd) <
         0) { /* Connect failed, try another */ // line:netp:openclientfd:closefd
       fprintf(stderr, "open_clientfd: close failed: %s\n", strerror(errno));
