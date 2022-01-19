@@ -568,6 +568,7 @@ std::optional<Response> send_mp_request(StreamPtr &client, StreamPtr (&servers)[
         printf("\n\n!!!!!!!!!!!!err!!!!!!!!!!!!!!!!!!!!!\n\n");
         return std::nullopt;
     }
+    
     uint8_t *finished_ptr[path_num];
     for (int i = 0; i < path_num; ++i)
     {
@@ -576,6 +577,7 @@ std::optional<Response> send_mp_request(StreamPtr &client, StreamPtr (&servers)[
         else
             finished_ptr[i] = finished_ptr[i - 1] + works[i - 1];
     }
+
     bool has_read_header[path_num] = {0};
     Request req_0 = client_req, req_1 = client_req;
     pollfd fd_pool[path_num];
