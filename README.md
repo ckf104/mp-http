@@ -36,4 +36,4 @@
   * 浏览器建议使用firefox
   * 首先在mp-http主文件夹下执行mkdir build建立build文件夹
   * 进入build文件夹，并执行cmake .. && make
-  * 编译完成后在build文件夹执行./proxy <port> 来运行proxy
+  * 编译完成后在build文件夹执行./proxy $port$来运行proxy, 其中$port$为指定的端口号
