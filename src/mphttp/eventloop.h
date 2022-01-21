@@ -2,13 +2,24 @@
 #define EVENTLOOP_H
 
 #include "types.h"
+#include "macro.h"
+
 #include <functional>
 #include <queue>
 #include <sys/epoll.h>
+#include <sys/types.h>
+#include <sys/fcntl.h>
+#include <unistd.h>
 
 struct HttpClient;
 struct EventLoop {
-  EventLoop() { epoll_fd = epoll_create(1); }
+  EventLoop() { 
+    epoll_fd = epoll_create(1); 
+    MPHTTP_ASSERT(epoll_fd != -1, "EventLoop : create epoll fd fail");
+  }
+  ~EventLoop() {  close(epoll_fd);  }
+
+
 
   // @brief : main loop execution function
   void run(int timeout);

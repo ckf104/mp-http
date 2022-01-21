@@ -30,11 +30,13 @@ func Get_type_by_extension(filename string) string {
 }
 
 // extract string like "bytes=123-456" or "bytes=123-"
-func Get_range(byte_range string, max_size int) (int, int, error) {
+func Get_range(byte_range string, max_size int) (bool, int, int, error) {
 	start := 0
 	end := max_size - 1
+	has_range_header := false
 	var err error = nil
 	if byte_range != "" {
+		has_range_header = true
 		tmp := strings.Index(byte_range, "-")
 		if tmp == len(byte_range)-1 {
 			_, err = fmt.Sscanf(byte_range, "bytes=%d-", &start)
@@ -44,5 +46,5 @@ func Get_range(byte_range string, max_size int) (int, int, error) {
 			_, err = fmt.Sscanf(byte_range, "bytes=%d-%d", &start, &end)
 		}
 	}
-	return start, end, err
+	return has_range_header, start, end, err
 }

@@ -19,7 +19,7 @@ struct Body;
 // state machine for onReadEvent
 // the state for reading response
 enum ReadableState {
-  kInitial,
+  kInitial = 0,
   kReadingResponseLine,
   kReadingHeaders,
   kGetAllHeaders,
@@ -30,7 +30,7 @@ enum ReadableState {
 // the state for sending request
 // on writing request, you only need to write to the buffer.
 enum WritableState {
-  kConnecting,
+  kConnecting = 0,
   kWritingRequest,
   kWritingComplete,
 };
@@ -47,9 +47,13 @@ struct HttpClient {
     MPHTTP_ASSERT(setNonBlocking(sock_fd) != -1,
                   "HttpClient : socket %d set nonblock fail\n", sock_fd);
 
-    MPHTTP_ASSERT(connect(sock_fd, (const sockaddr *)&server_addr_,
-                          sizeof(server_addr_)) != -1,
-                  "HttpClient : socket %d fail to connect to server\n");
+    int ret = connect(sock_fd, (const sockaddr *)&server_addr_,
+                          sizeof(server_addr_));
+    if (ret < 0) {
+      if (errno != EINPROGRESS) {
+        MPHTTP_FATAL("HttpClient : socket %d non blocking connect fail\n", sock_fd);
+      }
+    }
 
     MPHTTP_ASSERT(loop_->registerEvent(sock_fd, EPOLLIN | EPOLLOUT, this) != -1,
                   "HttpClient : socket %d add into epoll fail\n", sock_fd);
@@ -59,15 +63,17 @@ struct HttpClient {
 
   void constructRangeHeader(size_t start, size_t end);
 
+  void sendRequest();
+
   bool processResponseLine(const char *begin, const char *end);
 
   bool parseResponse(timestamp_t recv_time);
 
   void onGetAllHeaders();
 
-  void onBody(size_t recv_bytes, timestamp_t recv_time);
+  void onBody(timestamp_t recv_time);
 
-  void onReadable(size_t recv_bytes, timestamp_t received_time,
+  void onReadable(timestamp_t received_time,
                   bool is_end_of_stream);
 
   // @brief : set the Range.end
@@ -87,10 +93,10 @@ struct HttpClient {
 
   // @brief : get the remaining bytes for this client
   size_t GetRemaining() const {
-    if (range.end == 0 || range.end <= range.start + range.received) {
+    if (range.end == 0 || range.end < range.start + range.received) {
       return 0;
     } else {
-      return range.end - range.start - range.received;
+      return range.end - range.start - range.received + 1;
     }
   }
 
@@ -106,12 +112,12 @@ struct HttpClient {
       return;
     }
 
-    size_t time_delta = std::chrono::duration_cast<std::chrono::microseconds>(
+    delta_received += recv_bytes;
+    size_t time_delta = std::chrono::duration_cast<std::chrono::milliseconds>(
                             recv_time - last_received)
                             .count();
 
     if (time_delta == 0) {
-      delta_received += recv_bytes;
       return;
     }
 
@@ -145,7 +151,7 @@ struct HttpClient {
   // this client is close or not
   bool is_close{false};
   // this client has reschedule or not
-  bool has_reschedule{true};
+  bool has_reschedule{false};
 
   // the task buffer
   struct MpTask *task_buffer_;

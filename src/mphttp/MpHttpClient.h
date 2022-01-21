@@ -11,22 +11,29 @@ struct EventLoop;
 struct HttpClient;
 
 struct MpHttpClient {
-  MpHttpClient(struct EventLoop *loop, struct MpTask *mp_task,
+  MpHttpClient(struct EventLoop *loop,
                struct sockaddr_in *addr_in)
-      : loop_(loop), mp_task_(mp_task), tasks_({nullptr, nullptr}),
+      : loop_(loop), tasks_({nullptr, nullptr}),
         addr_in_(*addr_in) {}
 
+  void SetMpTask(struct MpTask* task) { mp_task_ = task;}
+
+  bool IsComplete() {
+    return (tasks_.running == nullptr) && (tasks_.running == nullptr);
+  }
+
   void UpdateBandwidth() {
-    size_t bw;
+    size_t bw = 0;
     if (tasks_.running) {
       bw = tasks_.running->GetBandwidth();
-      if (bw > 0) {
-        bandwidth_ = bw;
-      }
     } else if (tasks_.next) {
       bw = tasks_.next->GetBandwidth();
-      if (bw > 0) {
+    }
+    if (bw > 0) {
+      if (bandwidth_ == 0) {
         bandwidth_ = bw;
+      } else {
+        bandwidth_ = 0.9 * bandwidth_ + 0.1 * bw;
       }
     }
   }
@@ -39,7 +46,7 @@ struct MpHttpClient {
   }
 
   void UpdateRTT(timestamp_t send_time, timestamp_t recv_time) {
-    size_t sample_rtt = std::chrono::duration_cast<std::chrono::microseconds>(
+    size_t sample_rtt = std::chrono::duration_cast<std::chrono::milliseconds>(
                             recv_time - send_time)
                             .count();
     if (rtt_ == 0) {
@@ -77,7 +84,7 @@ struct MpHttpClient {
     if (tasks_.running == client) {
       tasks_.running = nullptr;
     } else if (tasks_.next == client) {
-      tasks_.running = nullptr;
+      tasks_.next = nullptr;
     }
     UpdateTask();
   }

@@ -15,10 +15,8 @@
 
 void HttpResponse::appendToBuffer(Buffer *output) {
   char buf[32];
-  snprintf(buf, sizeof buf, "HTTP/1.1 %d ", statusCode_);
-  output->append(buf);
-  output->append(statusMessage_);
-  output->append("\r\n");
+
+  output->append(version_ + " " + statusCode_ + " " + statusMessage_ + "\r\n");
 
   if (closeConnection_) {
     output->append("Connection: close\r\n");

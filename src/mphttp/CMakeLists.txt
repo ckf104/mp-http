@@ -17,6 +17,7 @@ add_library(mphttp
         HttpRequest.cc
         HttpResponse.cc
         MpHttpClient.cc
+        MpTask.cc
         helper.cpp
 )
 

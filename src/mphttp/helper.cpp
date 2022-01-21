@@ -65,7 +65,7 @@ ssize_t Rio_t::rio_readlineb(string &usrbuf) {
         return usrbuf.size();
     } else if (rc == 0) {
       std::cout << " end of stream\n" << std::endl;
-      return usrbuf.size();
+      return 0;
     } else {
       return -1;
     }

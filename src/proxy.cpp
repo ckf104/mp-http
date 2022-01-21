@@ -46,6 +46,7 @@ static string host_header("Host");
 static string content_len_hdr("Content-Length");
 static string connect_response("HTTP/1.1 200 Connection established\r\n\r\n");
 static string connect_method("CONNECT");
+static string get_method("GET");
 
 extern char **environ;
 struct HttpStream;
@@ -99,9 +100,6 @@ public:
    * @return int 0 means success
    */
   std::optional<Request> getRequest(string &req_body) {
-    // char _method[max_line], _uri[max_line], _version[max_line];
-    // char _hostname[max_line], _path[max_line];
-    // req_body.clear();
     Request r;
 
     if (fd.rio_readlineb(r.headline) <= 0) {
@@ -133,6 +131,8 @@ public:
     } catch (std::exception &e) {
       std::cout << "error at : " << __LINE__ << " " << e.what() << std::endl;
     }
+
+    std::cout << " the host is " << host << std::endl;
     auto index = host.find(':'); // Host: <hostname>:<port>
     if (index == string::npos) {
       hostname = host.substr(0, host.size() - 2);
@@ -225,6 +225,48 @@ public:
   }
 };
 
+
+int OpenClientFd(const char *hostname, const char *port, struct addrinfo *address, int num_servers) {
+  int clientfd, rc;
+  struct addrinfo hints, *listp, *p;
+
+  std::cout << "GetAddrInfo for host : " << hostname << std::endl;
+
+  memset(&hints, 0, sizeof(struct addrinfo));
+  hints.ai_socktype = SOCK_STREAM; 
+  hints.ai_flags = AI_NUMERICSERV; 
+  hints.ai_flags |= AI_ADDRCONFIG;
+
+  if ((rc = getaddrinfo(hostname, port, &hints, &listp)) != 0) {
+    fprintf(stderr, "getaddrinfo failed (%s:%s): %s\n", hostname, port,
+            gai_strerror(rc));
+    return -2;
+  }
+
+  int nret = 0;
+  for (p = listp; p; p = p->ai_next) {
+    if ((clientfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) < 0) { continue;}
+      
+
+    if (connect(clientfd, p->ai_addr, p->ai_addrlen) != -1) {
+      // TODO : cache this available address .
+      // append to the buffer
+      address[nret] = *p;
+    }
+
+    if (close(clientfd) < 0) {
+      fprintf(stderr, "open_clientfd: close failed: %s\n", strerror(errno));
+      return -1;
+    }
+  }
+
+  freeaddrinfo(listp);
+
+  return nret;
+}
+
+std::map<std::string, std::string> cache;
+
 int main(int argc, char **argv) {
   int listenfd, connfd;
   pthread_t tid;
@@ -259,80 +301,107 @@ int main(int argc, char **argv) {
 }
 
 void OnNewConnection(int client_fd) {
-  auto clientStream = HttpStream(client_fd);
+  struct HttpStream clientStream = HttpStream(client_fd);
+  struct EventLoop loop;
+  struct MpHttpClient *clients[2];
 
+  // FIXME : DNS query
+  struct sockaddr_in address[2];
+
+  address[0].sin_family = AF_INET;
+  address[0].sin_addr.s_addr = inet_addr("10.100.1.2");
+  address[0].sin_port = htons(80);
+
+  address[1].sin_family = AF_INET;
+  address[1].sin_addr.s_addr = inet_addr("10.100.2.2");
+  address[1].sin_port = htons(80);
+
+  // setup client stream
   if (!clientStream) {
     printf("[Err] Connection failed getStream\n");
     return;
   }
 
+  // setup multipath client stream
+  for (int i = 0; i < 2; i++) {
+      clients[i] = new struct MpHttpClient(&loop, &address[i]);
+  }
+
+  for (int i = 0; i < 2; i++) {
+    clients[i]->rival_ = clients[1 - i];
+  }
+
+
   while (1) {
     string req_body, reply_body;
-
     auto req_ptr = clientStream.getRequest(req_body);
 
     if (!req_ptr) {
-      // printf("[Err] Connection failed at get reqeust.\n");
+      printf("[Err] Connection failed at get reqeust.\n");
       break;
     }
 
     Request &req = req_ptr.value();
 
-    if (req.method == connect_method) {
+    if (req.method != get_method ) {
       OnConnectionMethod(&clientStream);
       break;
     }
 
-    struct sockaddr_in address[2];
-
-    address[0].sin_family = AF_INET;
-    address[0].sin_addr.s_addr = inet_addr("10.100.1.2");
-    address[0].sin_port = htons(80);
-
-    address[1].sin_family = AF_INET;
-    address[1].sin_addr.s_addr = inet_addr("10.100.2.2");
-    address[1].sin_port = htons(80);
+    MPHTTP_LOG(debug, "MpHttp : start new task");
 
     struct MpTask task;
-    struct EventLoop loop;
-    struct MpHttpClient *clients[2];
 
     for (int i = 0; i < 2; i++) {
-      clients[i] = new struct MpHttpClient(&loop, &task, &address[i]);
       clients[i]->request_header = &req;
       clients[i]->request_body = &req_body;
+      clients[i]->SetMpTask(&task);
     }
 
-    for (int i = 0; i < 2; i++) {
-      clients[i]->rival_ = clients[1 - i];
-    }
+    task.setRequest(&req);
+    task.setMpHttpType(req);
 
-    clients[0]->run(0, 0);
+    switch (task.task_type_) {
+      case MpHttpType::kNotUse:
+        MPHTTP_LOG(debug, "client starts with single path request.");
+        clients[0]->run(0, 0);
+        break;
+      case MpHttpType::kNoRangeHeader:
+        MPHTTP_LOG(debug, "client start with multipath request : no range header.");
+        clients[0]->run(0, 0);
+        break;
+      default:
+        MPHTTP_ASSERT(task.task_type_ == MpHttpType::kHasRangeHeader, 
+                      "unknown MpHttpType : %d", static_cast<int>(task.task_type_));
+        MPHTTP_LOG(debug, "client start with multipath request : range header.");
+        clients[0]->run(task.start_, task.end_);
+        clients[1]->reschedule();
+        break;
+    }
 
     auto isComplete = [clients]() {
-      for (int i = 0; i < 2; i++) {
-        if (clients[i]->tasks_.running || clients[i]->tasks_.next) {
-          return false;
-        }
-      }
-      return true;
+      return clients[0]->IsComplete() && clients[1]->IsComplete();
     };
 
     while (!isComplete()) {
-      loop.run(1000);
+      loop.run(0);
     }
 
     // TODO : send the buffer in MpTask.
-    if (!clientStream.fd.rio_writen((void *)task.task_buffer_.c_str(),
-                                    task.task_buffer_.size())) {
+    int sock_fd = clientStream.fd.rio_fd;
+
+    if (task.writeToSocket(sock_fd) < 0) {
+      MPHTTP_LOG(debug, "MPTask : Write to socket error");
       break;
     }
 
-    // cleanup:
-    clientStream.close();
-    delete clients[0];
-    delete clients[1];
+    MPHTTP_LOG(info, "task: %s write to socket finishes\n", req.url.c_str());
   }
+
+  // clean it up
+  clientStream.close();
+  delete clients[0];
+  delete clients[1];
 }
 
 std::optional<Response> send_normal_request(HttpStream &client,

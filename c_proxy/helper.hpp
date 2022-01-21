@@ -1,3 +1,5 @@
+
+   
 #ifndef __HELPER_HPP
 #define __HELPER_HPP
 
@@ -18,6 +20,7 @@ using std::vector;
 using Request_ptr = std::unique_ptr<Request>;
 using Response_ptr = std::unique_ptr<Response>;
 using Rio_ptr = std::shared_ptr<Rio_t>;
+
 
 enum class mp_http{
     not_use,
@@ -46,6 +49,7 @@ public:
     ssize_t rio_readnb(Body& buf, size_t n);
     ssize_t rio_read(void *usr_buf, size_t n);
     ssize_t rio_writen(const void *usrbuf, size_t n, int flags = 0);
+    size_t rio_get_rest();
     operator bool();   // return rio_fd != 0 ?
 };
 
@@ -80,14 +84,11 @@ public:
     int latency;
     int bandwidth;
     bool closed;  // corresponding socket has been closed ? 
-
     Path(const string &addr, int fd, int init_latency);
     Path();
     void close();   // close tcp socket in this path
     bool is_closed() const;
 };
-
-
 */
 
 int Accept(int s, struct sockaddr *addr, socklen_t *addrlen);
@@ -96,7 +97,6 @@ int Open_listenfd(const char *port);
 void Close(int fd);
 void Getnameinfo(const struct sockaddr *sa, socklen_t salen, char *host, 
                  size_t hostlen, char *serv, size_t servlen, int flags);
-int Open_clientfd(const char *hostname, const char *port, uint* latency);
+int Open_clientfd(const char *hostname, const char *port, uint* latency, uint* ip_addr);
 ssize_t writen(int rio_fd, const void *usrbuf, size_t n);
 #endif
-

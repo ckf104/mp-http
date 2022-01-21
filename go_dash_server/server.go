@@ -8,6 +8,7 @@ import (
 	"log"
 	"mime"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 )
@@ -19,11 +20,11 @@ func prog_init() *http.Server { // initialzie the server and other parameters
 	mime.AddExtensionType(".mpd", "application/dash+xml")
 
 	http.HandleFunc("/", http_handler_default)
-	http.HandleFunc("/media_src/multiple_v2/video/", http_handler_video)
-	http.HandleFunc("/media_src/multiple_v2/audio/", http_handler_audio)
+	http.HandleFunc("/media_src/multiple/video/", http_handler_video)
+	http.HandleFunc("/media_src/multiple/audio/", http_handler_audio)
 	//http.HandleFunc("/media_src/single/", http_handler_single)
 	return &http.Server{ // configuration for server, using DefaultServeMux
-		Addr:        "0.0.0.0:http",
+		Addr: os.Args[1] + ":http",
 		//Addr:        "10.100.1.2:http",
 		ReadTimeout: 120 * time.Second,
 		/*ReadTimeout is the maximum duration for reading the entire request, including the body.
@@ -66,6 +67,7 @@ func http_handler(response http.ResponseWriter, request *http.Request, content_t
 	var err error
 	var buf []byte
 	var read_byte_count, write_byte_count int
+	var has_range_header bool
 	bytes_st := 0
 	bytes_end := 0 // for range byte request
 
@@ -82,7 +84,9 @@ func http_handler(response http.ResponseWriter, request *http.Request, content_t
 	if err != nil {
 		goto err_status
 	}
-	bytes_st, bytes_end, err = helper.Get_range(request.Header.Get("range"), int(file_info.Size()))
+	
+	has_range_header, bytes_st, bytes_end, err = helper.Get_range(request.Header.Get("range"), int(file_info.Size()))
+	
 	if err != nil {
 		goto err_status
 	}
@@ -94,7 +98,7 @@ func http_handler(response http.ResponseWriter, request *http.Request, content_t
 	response.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS,HEAD")
 	response.Header().Set("Access-Control-Allow-Headers", "range,origin,accept-encoding")
 
-	if bytes_st != 0 || bytes_end != int(file_info.Size())-1 { // byte-range request
+	if has_range_header { // byte-range request
 		response.Header().Set("content-range", fmt.Sprintf("bytes %d-%d/%d",
 			bytes_st, bytes_end, file_info.Size()))
 		response.WriteHeader(http.StatusPartialContent)
@@ -131,6 +135,10 @@ err_status:
 
 func main() {
 	var err error
+	if len(os.Args) != 2 {
+		fmt.Println("server ip addr needed")
+		return
+	}
 	err = prog_init().ListenAndServe()
 	log.Println(err)
 }

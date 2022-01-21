@@ -22,17 +22,20 @@ public:
   enum HttpStatusCode {
     kUnknown,
     k200Ok = 200,
+    k206PartialContent = 206,
     k301MovedPermanently = 301,
     k400BadRequest = 400,
     k404NotFound = 404,
   };
 
-  HttpResponse() : statusCode_{kUnknown}, closeConnection_(false) {}
+  HttpResponse() : closeConnection_(false) {}
 
   explicit HttpResponse(bool close)
-      : statusCode_(kUnknown), closeConnection_(close) {}
+      : closeConnection_(close) {}
 
-  void setStatusCode(HttpStatusCode code) { statusCode_ = code; }
+  void setVersion(const std::string& version) {  version_ = version;  }
+
+  void setStatusCode(const std::string& code) { statusCode_ = code; }
 
   void setStatusMessage(const std::string &message) {
     statusMessage_ = message;
@@ -76,7 +79,8 @@ public:
   void appendToBuffer(Buffer *output);
 
   std::map<std::string, std::string> headers_;
-  HttpStatusCode statusCode_;
+  std::string version_;
+  std::string statusCode_;
   // FIXME: add http version
   std::string statusMessage_;
   bool closeConnection_;

@@ -1,6 +1,8 @@
 #ifndef MACRO_H
 #define MACRO_H
 
+#include <cstdio>
+
 #ifdef MPHTTP_NDEBUG
 
 #define MPHTTP_LOG(level, format, ...)

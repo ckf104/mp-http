@@ -5,30 +5,32 @@
 #include "macro.h"
 
 #include <cstring>
+#include <iostream>
 
 void HttpClient::constructRangeHeader(size_t start, size_t end) {
-  // construct range request for this HttpClient
-  std::string range_request;
+  // construct request for HttpClient, just like what okHttp interceptor do.
+  std::string range_header;
+
   if (end > 0) {
-    range_request =
-        "bytes=" + std::to_string(start) + "-" + std::to_string(end);
+    MPHTTP_ASSERT(start <= end, "HttpClient : construct header fail, start > end");
+    range_header = "Range: bytes=" + std::to_string(start) + "-" + std::to_string(end) + "\r\n";
   } else {
-    range_request = "bytes=" + std::to_string(start) + "-";
+    range_header = "Range: bytes=" + std::to_string(start) + "-\r\n";
   }
 
-  bool found_range = false;
-  // FIXME : append what ?
-  output_buffer.append(" ");
-  for (auto &header : mp_->request_header->headers) {
-    if (header.first != "Range") {
-      // FIXME : necessary?
-      output_buffer.append(header.first + ": " + header.second + "\r\n");
+  auto &request_header = *(mp_->request_header);
+  output_buffer.append(request_header.method + " " + request_header.url + " HTTP/1.1\r\n");
+
+  for (auto &header : request_header.headers) {
+    if (task_buffer_->task_type_ != MpHttpType::kNotUse && 
+        header.first == "Range") {
+      output_buffer.append(range_header);
     } else {
-      output_buffer.append(header.first + ": " + range_request + "\r\n");
+      output_buffer.append(header.first + ": " + header.second);
     }
   }
-  if (!found_range) {
-    output_buffer.append("Range: " + range_request + "\r\n");
+  if (task_buffer_->task_type_ == MpHttpType::kNoRangeHeader) {
+    output_buffer.append(range_header);
   }
   output_buffer.append("\r\n" + *mp_->request_body);
 }
@@ -37,10 +39,25 @@ bool HttpClient::processResponseLine(const char *begin, const char *end) {
   bool succeed = true;
   std::string response_line(begin, end);
 
-  char version[500], status[500], reason[500];
-  sscanf(response_line.c_str(), "%s %s %s", version, status, reason);
+  size_t index;
+  std::string version;
+  std::string status;
+  std::string reason;
 
-  response_.setStatusCode(HttpResponse::k200Ok);
+  index = response_line.find_first_of(" ");
+
+  MPHTTP_ASSERT(index != std::string::npos, "Httpclient : fail to parse http version.");
+  version = response_line.substr(0, index);
+
+  response_line = response_line.substr(index + 1);
+  index = response_line.find_first_of(" ");
+  MPHTTP_ASSERT(index != std::string::npos, "Httpclient : fail to parse http status code.");
+  status = response_line.substr(0, index);
+
+  reason = response_line.substr(index + 1);
+
+  response_.setVersion(version);
+  response_.setStatusCode(status);
   response_.setStatusMessage(reason);
   return succeed;
 }
@@ -95,43 +112,71 @@ bool HttpClient::parseResponse(timestamp_t receiveTime) {
 }
 
 void HttpClient::onGetAllHeaders() {
-  if (range.end == 0) {
-    std::string result =
-        std::move(response_.getHeader(std::string("Content-Range")));
-    size_t start = 0, end = 0, file_size = 0;
-    if (result != "") {
-      // TODO : prefetch
-      if (sscanf(result.c_str(), "%zu-%zu/%zu", &start, &end, &file_size) < 3) {
-        MPHTTP_LOG(error, "HttpClient GetSize() : fail to get "
-                          "Content-Range from response\n");
-        return;
-      } else {
-        range.start = start;
-        range.end = end;
-        task_buffer_->setContentRange(start, end);
-        task_buffer_->setFileSize(file_size);
-        mp_->rival_->reschedule();
+  if (task_buffer_->task_type_ != MpHttpType::kHasRangeHeader && 
+      range .end == 0) {
+
+    if (task_buffer_->task_type_ == MpHttpType::kNotUse) {
+      std::string content_length_header = response_.getHeader("Content-Length");
+      if (content_length_header != "") {
+        size_t length = 0;
+        if (sscanf(content_length_header.c_str(), "%zu", &length) < 1) {
+          MPHTTP_FATAL("HttpClient GetSize : fail to get "
+                       "Content-Length from response");
+        }
+        range.end = length - 1;
+        MPHTTP_LOG(debug, "content length = %zd", length);
+        task_buffer_->setContentRange(0, length - 1);
+      }
+    } else if (task_buffer_->task_type_ == MpHttpType::kNoRangeHeader) {
+      std::string result =
+          response_.getHeader(std::string("Content-Range"));
+      size_t start = 0, end = 0, file_size = 0;
+
+      if (result != "") {
+      // TODO : do prefetch when getting the whole file size.
+        if (sscanf(result.c_str(), "bytes %zu-%zu/%zu", &start, &end, &file_size) < 3) {
+          MPHTTP_FATAL("HttpClient GetSize : fail to get "
+                            "Content-Range from response");
+        } else {
+          range.start = start;
+          range.end = end;
+          task_buffer_->setContentRange(start, end);
+          task_buffer_->setFileSize(file_size);
+          mp_->rival_->reschedule();
+        }
       }
     }
+    task_buffer_->setResponse(response_);
+  } else if (task_buffer_->task_type_ == MpHttpType::kHasRangeHeader) {
     task_buffer_->setResponse(response_);
   }
 }
 
-void HttpClient::onBody(size_t recv_bytes, timestamp_t recv_time) {
+void HttpClient::onBody(timestamp_t recv_time) {
   // update the bandwidth
+  size_t recv_bytes = input_buffer.readableBytes();
+  
   UpdateBandwidth(recv_bytes, recv_time);
 
-  range.received += recv_bytes;
+  size_t end = range.start + range.received + recv_bytes;
 
-  size_t end = range.start + range.received;
+  if (range.end < end) {
+    is_close = true;
+    end = range.end + 1;
+  }
 
-  // write to the buffer
-  size_t length = end - range.start;
-  MPHTTP_LOG(info, "HttpClient : write %zu bytes to the task buffer\n", length);
-  task_buffer_->memcpyFrom(input_buffer.peek(), range.start, end);
+  size_t length = end - range.start - range.received;
+
+  //MPHTTP_LOG(info, "HttpClient : current start = %zu, current end = %zu, range.end = %zu", 
+  //          range.start + range.received, end, range.end);
+
+  task_buffer_->memcpyFrom(input_buffer.peek(), range.start + range.received, end);
   input_buffer.retrieve(length);
 
+  range.received += length;
+
   // if the job is almost complete, rescedule
+
   if (GetRemaining() < 1.5 * GetBandwidth() * mp_->GetRTT()) {
     if (!has_reschedule) {
       has_reschedule = true;
@@ -139,22 +184,20 @@ void HttpClient::onBody(size_t recv_bytes, timestamp_t recv_time) {
     }
   }
 
-  if (end >= range.end || is_close) {
-    is_close = true;
+  if (is_close) {
     CloseCallback();
     mp_->resetTaskQueue(this);
   }
 }
 
-void HttpClient::onReadable(size_t recv_bytes, timestamp_t received_time,
+void HttpClient::onReadable(timestamp_t received_time,
                             bool is_end_of_stream) {
   if (read_state == kInitial) {
-    // FIXME : see if an range header in the Request Header
-    // if not, add one ...
     mp_->UpdateRTT(send_time_, received_time);
-    read_state = kReadingHeaders;
+    read_state = kReadingResponseLine;
   }
-  if (read_state == kReadingHeaders) {
+  if (read_state == kReadingResponseLine || 
+      read_state == kReadingHeaders) {
     parseResponse(received_time);
   }
   if (read_state == kGetAllHeaders) {
@@ -162,7 +205,7 @@ void HttpClient::onReadable(size_t recv_bytes, timestamp_t received_time,
     read_state = kReadingBody;
   }
   if (read_state == kReadingBody) {
-    onBody(recv_bytes, received_time);
+    onBody(received_time);
   }
 }
 
@@ -181,7 +224,7 @@ void HttpClient::ReadableCallback(timestamp_t now) {
     is_end_of_stream = true;
   }
 
-  onReadable(ret, now, is_end_of_stream);
+  onReadable(now, is_end_of_stream);
 }
 
 // @brief : the writable callback for the event loop to execute
