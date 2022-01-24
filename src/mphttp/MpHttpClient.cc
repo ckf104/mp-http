@@ -15,6 +15,9 @@ void MpHttpClient::run(size_t start, size_t end) {
 
 void MpHttpClient::reschedule() {
     // we should update the task queue and bandwidth before next step
+    // UpdateBandwidth(0);
+    // rival_->UpdateBandwidth(0);
+
     UpdateTask();
     rival_->UpdateTask();
 

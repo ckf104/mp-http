@@ -61,7 +61,7 @@ struct HttpClient {
         int ret = connect(sock_fd, (const sockaddr *)&server_addr_,
                           sizeof(server_addr_));
 
-        send_time_ = std::chrono::high_resolution_clock::now();
+        // send_time_ = std::chrono::high_resolution_clock::now();
         if (ret < 0) {
             if (errno != EINPROGRESS) {
                 MPHTTP_FATAL(
@@ -248,7 +248,9 @@ struct HttpClient {
     };
     struct Range range;
 
-    // bandwidth sampler
+    timestamp_t start_time;
+
+    // TODO : remove old bandwidth sampler
     size_t delta_received{0};
     timestamp_t last_received;
     size_t bandwidth{0};

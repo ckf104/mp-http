@@ -360,7 +360,7 @@ void OnNewConnection(int client_fd) {
             break;
         }
 
-        std::cerr << "MpHttp : start new task " << req.url << std::endl;
+        // std::cerr << "MpHttp : start new task " << req.url << std::endl;
 
         struct MpTask task;
 
@@ -411,12 +411,12 @@ void OnNewConnection(int client_fd) {
         }
         auto end_time = std::chrono::high_resolution_clock::now();
 
-        std::cout << "bandwidth = "
-                  << (task.end_ - task.start_) * 8.0 /
-                         std::chrono::duration_cast<std::chrono::microseconds>(
-                             end_time - start_time)
-                             .count()
-                  << std::endl;
+        // std::cout << "bandwidth = "
+        //           << (task.end_ - task.start_) * 8.0 /
+        //                  std::chrono::duration_cast<std::chrono::microseconds>(
+        //                      end_time - start_time)
+        //                      .count()
+        //           << std::endl;
 
         // TODO : send the buffer in MpTask.
         int sock_fd = clientStream.fd.rio_fd;
@@ -426,7 +426,7 @@ void OnNewConnection(int client_fd) {
             break;
         }
 
-        std::cerr << "task " << req.url << " finish " << std::endl;
+        // std::cerr << "task " << req.url << " finish " << std::endl;
     }
 
     // clean it up

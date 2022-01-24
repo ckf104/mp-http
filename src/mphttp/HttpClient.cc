@@ -166,10 +166,14 @@ void HttpClient::onGetAllHeaders() {
 }
 
 void HttpClient::onBody(timestamp_t recv_time) {
+    if (range.received == 0) {
+        start_time = recv_time;
+    }
+
     // update the bandwidth
     size_t recv_bytes = input_buffer.readableBytes();
 
-    UpdateBandwidth(recv_bytes, recv_time);
+    // UpdateBandwidth(recv_bytes, recv_time);
 
     size_t end = range.start + range.received + recv_bytes;
 
@@ -203,16 +207,18 @@ void HttpClient::onBody(timestamp_t recv_time) {
     }
 
     if (is_close) {
-        // if (mp_->rival_->IsComplete() && mp_->getAnotherTask(this) ==
-        // nullptr) {
-        //  optimization : save the last task
-        //    MPHTTP_LOG(debug, "???");
-        //    mp_->UpdateTask();
-        //} else {
         CloseCallback();
-        mp_->UpdateBandwidth(bandwidth);
+        size_t sample = 0;
+        size_t delta_time =
+            std::chrono::duration_cast<std::chrono::milliseconds>(recv_time -
+                                                                  send_time_)
+                .count();
+        if (delta_time != 0) {
+            sample = range.received * 1000 / delta_time;
+        }
+        mp_->UpdateBandwidth(sample);
+        MPHTTP_LOG(debug, "sample = %zu, bw = %zu", sample, mp_->bandwidth_);
         mp_->resetTaskQueue(this);
-        //}
     }
 }
 

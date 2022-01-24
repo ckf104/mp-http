@@ -29,6 +29,7 @@
 		let timestamp = 0
 		let stall_count = []
 		let bitrate_count = []
+		let intervalSet = 0
 		var interval_id
 		let isStalled = 0
 
@@ -47,9 +48,11 @@
 				bitrate_count = []
 			}
 			// FIXME : comment this when not doing bandwidth calculation
-			player.on(dashjs.MediaPlayer.events.PLAYBACK_METADATA_LOADED, InitializeHandler)
+			//player.on(dashjs.MediaPlayer.events.PLAYBACK_METADATA_LOADED, InitializeHandler)
 
 			player.initialize(document.querySelector("#videoPlayer"), document.querySelector("#mpd_url").value, false)
+
+			InitializeHandler()
 
 			player.on(dashjs.MediaPlayer.events.PLAYBACK_PAUSED, stall_handler)
 			player.on(dashjs.MediaPlayer.events.PLAYBACK_PLAYING, stall_handler)
@@ -71,11 +74,17 @@
 			//player.setQualityFor('video', 2, false)
 		}
 
-		function InitializeHandler(e) {
+		function InitializeHandler() {
 			let video_ele = document.querySelector('#videoPlayer')
 			let last = video_ele.webkitVideoDecodedByteCount
 
 			console.log("In Initialize Handler")
+
+			if (intervalSet === 1) {
+				clearInterval(interval_id)
+			} else {
+				intervalSet = 1
+			}
 
 			interval_id = setInterval(() => {
 				let metrix = player.getDashMetrics()
@@ -100,7 +109,7 @@
 				var dashMetrics = player.getDashMetrics();
 
 				//console.log(player.getSettings())
-				console.log(`${throughput}, ${bitrate}`)
+				console.log(`${throughput},${bitrate}`)
 
 				real_bitrate.innerHTML = `${currentBitrate} Kbps`
 				resolution.innerHTML = `${video_ele.videoWidth} x ${video_ele.videoHeight}`

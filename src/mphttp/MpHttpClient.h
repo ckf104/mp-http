@@ -32,14 +32,11 @@ struct MpHttpClient {
     }
 
     void UpdateBandwidth(size_t bw) {
-        if (mp_task_->task_type_ == MpHttpType::kNotUse) {
-            return;
-        }
         if (bw > 0) {
             if (bandwidth_ == 0) {
                 bandwidth_ = bw;
             } else {
-                bandwidth_ = 0.9 * bandwidth_ + 0.1 * bw;
+                bandwidth_ = 0.85 * bandwidth_ + 0.15 * bw;
             }
         }
     }
