@@ -1,13 +1,14 @@
 #ifndef __HELPER_HPP
 #define __HELPER_HPP
 
+#include <sys/socket.h>
+
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "general.hpp"
-#include <sys/socket.h>
 
 class Request;
 class Response;
@@ -20,52 +21,52 @@ using Response_ptr = std::unique_ptr<Response>;
 using Rio_ptr = std::shared_ptr<Rio_t>;
 
 enum class mp_http {
-  not_use,
-  has_range_header, // use mp_http
-  no_range_header,  // use mp_http
+    not_use,
+    has_range_header,  // use mp_http
+    no_range_header,   // use mp_http
 };
 
 struct Body {
-  std::unique_ptr<uint8_t[]> content;
-  uint64_t length = 0;
+    std::unique_ptr<uint8_t[]> content;
+    uint64_t length = 0;
 };
 
 class Rio_t {
-private:
-  // int rio_fd;                    /* Descriptor for this internal buf */
-  int rio_cnt;                   /* Unread bytes in internal buf */
-  char *rio_bufptr;              /* Next unread byte in internal buf */
-  char rio_buf[rio_buffer_size]; /* Internal buffer */
+   private:
+    // int rio_fd;                    /* Descriptor for this internal buf */
+    int rio_cnt;                   /* Unread bytes in internal buf */
+    char *rio_bufptr;              /* Next unread byte in internal buf */
+    char rio_buf[rio_buffer_size]; /* Internal buffer */
 
-public:
-  int rio_fd; // for convenience :)
-  Rio_t(int fd);
+   public:
+    int rio_fd;  // for convenience :)
+    Rio_t(int fd);
 
-  ssize_t rio_readlineb(string &usrbuf);
-  ssize_t rio_readnb(string &usrbuf, size_t n);
-  ssize_t rio_read(void *usr_buf, size_t n);
-  ssize_t rio_writen(const void *usrbuf, size_t n, int flags = 0);
-  operator bool(); // return rio_fd != 0 ?
+    ssize_t rio_readlineb(string &usrbuf);
+    ssize_t rio_readnb(string &usrbuf, size_t n);
+    ssize_t rio_read(void *usr_buf, size_t n);
+    ssize_t rio_writen(const void *usrbuf, size_t n, int flags = 0);
+    operator bool();  // return rio_fd != 0 ?
 };
 
 class Request {
-public:
-  string method;
-  // string host;
-  string url;
-  string headline;
-  string http_proto = "HTTP/1.1"; // http/1.x
-  // string hostname;
-  // string path;
-  // Includs \r\n in the latter string
-  std::map<string, string> headers; // string + \r\n ?
+   public:
+    string method;
+    // string host;
+    string url;
+    string headline;
+    string http_proto = "HTTP/1.1";  // http/1.x
+    // string hostname;
+    // string path;
+    // Includs \r\n in the latter string
+    std::map<string, string> headers;  // string + \r\n ?
 };
 
 class Response {
-public:
-  string headline;
-  string version, code, status;
-  std::map<string, string> headers;
+   public:
+    string headline;
+    string version, code, status;
+    std::map<string, string> headers;
 };
 
 /*

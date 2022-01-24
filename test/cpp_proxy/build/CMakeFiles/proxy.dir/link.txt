@@ -1,1 +1,0 @@
-/usr/bin/c++     CMakeFiles/proxy.dir/proxy.cpp.o  -o proxy  libhelper.a -pthread 

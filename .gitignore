@@ -1,3 +1,4 @@
 media_src/*
 .vscode/settings.json
 build/*
+./.clang-format

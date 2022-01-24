@@ -29,7 +29,8 @@
 		let timestamp = 0
 		let stall_count = []
 		let bitrate_count = []
-		let interval_id = []
+		var interval_id
+		let isStalled = 0
 
 		function load(e) {
 			if (interval_id !== [])
@@ -45,9 +46,68 @@
 				console.log(bitrate_count.slice())
 				bitrate_count = []
 			}
+			// FIXME : comment this when not doing bandwidth calculation
+			player.on(dashjs.MediaPlayer.events.PLAYBACK_METADATA_LOADED, InitializeHandler)
+
 			player.initialize(document.querySelector("#videoPlayer"), document.querySelector("#mpd_url").value, false)
+
 			player.on(dashjs.MediaPlayer.events.PLAYBACK_PAUSED, stall_handler)
 			player.on(dashjs.MediaPlayer.events.PLAYBACK_PLAYING, stall_handler)
+			player.on(dashjs.MediaPlayer.events.BUFFER_EMPTY, stall_handler)
+			player.on(dashjs.MediaPlayer.events.PLAYBACK_ENDED, () => {
+				// show stall count
+				console.log(stall_count)
+				// cancell interval_id
+				clearInterval(interval_id)
+
+			})
+		}
+
+		function switchQualityHandler(e) {
+			console.log("nice???????")
+
+			//let settingsp = player.getSettings();
+			//settingsp.streaming.abr.autoSwitchBitrate = false;
+			//player.setQualityFor('video', 2, false)
+		}
+
+		function InitializeHandler(e) {
+			let video_ele = document.querySelector('#videoPlayer')
+			let last = video_ele.webkitVideoDecodedByteCount
+
+			console.log("In Initialize Handler")
+
+			interval_id = setInterval(() => {
+				let metrix = player.getDashMetrics()
+				video_ele = document.querySelector('#videoPlayer')
+				let real_bitrate = document.querySelector(".bitrate")
+				let resolution = document.querySelector(".resolution")
+
+				// get current quality index 
+				var currentQualityIndex = player.getQualityFor('video')
+
+				// playervar.getBitrateInfoListFor('video') -- returns array of all qualities
+				var currentQualityObject = player.getBitrateInfoListFor('video')[currentQualityIndex]
+				var bitrate = Math.round(currentQualityObject.bitrate / 1000)
+
+				// get throughput
+				var currentVideoByteCount = video_ele.webkitVideoDecodedByteCount
+
+				var currentBitrate = Math.round(8 * (currentVideoByteCount - last) / 1000)
+				var throughput = Math.round(8 * (currentVideoByteCount - last) / 1000)
+
+				// get dashMetrics
+				var dashMetrics = player.getDashMetrics();
+
+				//console.log(player.getSettings())
+				console.log(`${throughput}, ${bitrate}`)
+
+				real_bitrate.innerHTML = `${currentBitrate} Kbps`
+				resolution.innerHTML = `${video_ele.videoWidth} x ${video_ele.videoHeight}`
+				bitrate_count.push(currentVideoByteCount - last)
+				last = currentVideoByteCount
+
+			}, 1000)
 		}
 
 		function stall_handler(e) {
@@ -56,26 +116,18 @@
 				let now = new Date()
 				timestamp = now.getTime()
 			}
+			else if (e.type === dashjs.MediaPlayer.events.BUFFER_EMPTY) {
+				let now = new Date()
+				timestamp = now.getTime()
+			}
 			else if (e.type === dashjs.MediaPlayer.events.PLAYBACK_PLAYING && timestamp !== 0) {
 				let now = new Date()
 				stall_count.push(now.getTime() - timestamp)
 				//console.log(`diff : ${now.getTime() - timestamp}ms`)
+				timestamp = 0
 			}
 			else if (e.type === dashjs.MediaPlayer.events.PLAYBACK_PLAYING && timestamp === 0) {
-				let video_ele = document.querySelector('#videoPlayer')
-				let last = video_ele.webkitVideoDecodedByteCount
 
-				interval_id = setInterval(() => {
-					let metrix = player.getDashMetrics()
-					video_ele = document.querySelector('#videoPlayer')
-					let real_bitrate = document.querySelector(".bitrate")
-					let resolution = document.querySelector(".resolution")
-
-					real_bitrate.innerHTML = `${Math.round((video_ele.webkitVideoDecodedByteCount - last) / 1000 * 8)} Kbps`
-					resolution.innerHTML = `${video_ele.videoWidth} x ${video_ele.videoHeight}`
-					bitrate_count.push(video_ele.webkitVideoDecodedByteCount - last)
-					last = video_ele.webkitVideoDecodedByteCount
-				}, 1000)
 			}
 		}
 	</script>
