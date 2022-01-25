@@ -197,10 +197,10 @@ void HttpClient::onBody(timestamp_t recv_time) {
     range.received += length;
 
     // if the job is almost complete, rescedule
-
-    if (GetRemaining() < 1.5 * GetBandwidth() * mp_->GetRTT() / 1000.0) {
-        if (!has_reschedule &&
-            task_buffer_->task_type_ != MpHttpType::kNotUse) {
+    size_t my_bw = mp_->GetBandwidth();
+    if (task_buffer_->task_type_ != MpHttpType::kNotUse && my_bw > 0) {
+        double my_dltime = 1000 * GetRemaining() / my_bw;
+        if (!has_reschedule && my_dltime < mp_->GetRTT()) {
             has_reschedule = true;
             mp_->reschedule();
         }

@@ -1,6 +1,8 @@
 #ifndef HTTPCLIENT_H
 #define HTTPCLIENT_H
 
+#include <iostream>
+
 #include "Buffer.h"
 #include "HttpResponse.h"
 #include "common.h"
@@ -17,8 +19,10 @@ struct Request;
 struct Body;
 
 // state machine for connect pool
-enum ConnectState {
-
+enum PoolState {
+    kInUsed = 0,
+    kIdleConnecting,
+    kIdleConnected,
 };
 
 // state machine for onReadEvent
@@ -52,8 +56,10 @@ struct HttpClient {
           server_addr_(addr_in),
           range({start, end, 0}) {
         ssize_t result;
+
         sock_fd = socket(AF_INET, SOCK_STREAM, 0);
         MPHTTP_ASSERT(sock_fd != -1, "HttpClient : set up new socket fail\n");
+
         result = setNonBlocking(sock_fd);
         MPHTTP_ASSERT(result != -1,
                       "HttpClient : socket %d set nonblock fail\n", sock_fd);
@@ -61,7 +67,8 @@ struct HttpClient {
         int ret = connect(sock_fd, (const sockaddr *)&server_addr_,
                           sizeof(server_addr_));
 
-        // send_time_ = std::chrono::high_resolution_clock::now();
+        // FIXME :
+        send_time_ = std::chrono::high_resolution_clock::now();
         if (ret < 0) {
             if (errno != EINPROGRESS) {
                 MPHTTP_FATAL(
@@ -76,6 +83,31 @@ struct HttpClient {
                       "HttpClient : socket %d add into epoll fail\n", sock_fd);
 
         constructRangeHeader(start, end);
+    }
+
+    void StartWith(struct MpTask *task_buffer, size_t start, size_t end) {
+        task_buffer_ = task_buffer;
+        range.start = start;
+        range.end = end;
+        range.received = 0;
+
+        // construct request
+        constructRangeHeader(start, end);
+
+        // if (pool_state_ == kIdleConnected) {
+        //     MPHTTP_LOG(debug, "HttpClient : Connected");
+        //     pool_state_ = kInUsed;
+        //  register the event again
+        //    event_state_ = EPOLLIN | EPOLLOUT | EPOLLET;
+        //    int result = loop_->registerEvent(sock_fd, event_state_, this);
+        //    MPHTTP_ASSERT(result != -1,
+        //                  "HttpClient : socket %d add into epoll fail\n",
+        //                  sock_fd);
+        // directly write to the socket
+        //    WritableCallback(std::chrono::high_resolution_clock::now());
+        //}
+
+        // pool_state_ = kInUsed;
     }
 
     void ResetWith(struct MpTask *task_buffer, size_t start, size_t end) {
@@ -103,7 +135,7 @@ struct HttpClient {
         // reset read state
         read_state = kInitial;
         // reset write state
-        write_state = kConnecting;
+        write_state = kWritingRequest;
 
         // enable write again
         enableWrite();
@@ -112,7 +144,7 @@ struct HttpClient {
         constructRangeHeader(start, end);
 
         // FIXME : send time
-        send_time_ = std::chrono::high_resolution_clock::now();
+        // send_time_ = std::chrono::high_resolution_clock::now();
         // TODO : We don't reset socket fd and address, since this function is
         // for next initial server choosing....
     }
@@ -261,6 +293,7 @@ struct HttpClient {
     MpHttpClient *mp_;  // which MpHttpClient it belongs to
     enum ReadableState read_state { kInitial };      // my reading state
     enum WritableState write_state { kConnecting };  // my writing state
+    enum PoolState pool_state_ { kIdleConnecting };
 };
 
 #endif

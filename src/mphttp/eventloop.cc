@@ -21,13 +21,28 @@ void EventLoop::run(int timeout) {
         struct HttpClient *client =
             static_cast<struct HttpClient *>(event_queue[i].data.ptr);
 
+        // if (client->pool_state_ == kInUsed) {
         if (event_queue[i].events & EPOLLIN) {
             client->ReadableCallback(now);
         }
-
         if (event_queue[i].events & EPOLLOUT) {
             client->WritableCallback(now);
         }
+        //} else if (client->pool_state_ == kIdleConnecting) {
+        //    if (event_queue[i].events & EPOLLOUT) {
+        //        MPHTTP_LOG(info, "A client in  client pool is connected\n");
+        // conncetion is ready !
+        //        client->pool_state_ = kIdleConnected;
+        // remove from epoll
+        //        int ret =
+        //            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client->sock_fd, NULL);
+        //        if (ret == -1) {
+        //            std::cerr
+        //               << "eventloop : delete ready client from pool fail."
+        //                << std::endl;
+        //        }
+        //    }
+        //}
     }
 
     // execute some callback functions

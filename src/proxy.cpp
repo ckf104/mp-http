@@ -45,7 +45,7 @@ extern char **environ;
 struct HttpStream;
 using StreamPtr = std::unique_ptr<HttpStream>;
 
-void OnNewConnection(int fd);
+void OnNewConnection(int fd, std::string port);
 void clienterror(int fd, const char *cause, const char *errnum,
                  const char *shortmsg, const char *longmsg);
 void parse_uri(char *uri, char *hostname, char *path, int *port);
@@ -286,7 +286,7 @@ int main(int argc, char **argv) {
         printf("Accepted connection from (%s:%s)\n", hostname, port);
 
         std::thread worker =
-            std::thread([connfd]() { OnNewConnection(connfd); });
+            std::thread([connfd, port]() { OnNewConnection(connfd, port); });
 
         worker.detach();
     }
@@ -295,7 +295,7 @@ int main(int argc, char **argv) {
     return 0;
 }
 
-void OnNewConnection(int client_fd) {
+void OnNewConnection(int client_fd, std::string port) {
     struct HttpStream clientStream = HttpStream(client_fd);
     struct EventLoop loop;
     struct MpHttpClient *clients[2];
@@ -310,6 +310,10 @@ void OnNewConnection(int client_fd) {
     address[1].sin_family = AF_INET;
     address[1].sin_addr.s_addr = inet_addr("10.100.2.2");
     address[1].sin_port = htons(80);
+
+    std::string file_name = "../logger/logger_" + port + ".txt";
+    int logger_fd =
+        open(file_name.c_str(), O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
 
     // setup client stream
     if (!clientStream) {
@@ -344,6 +348,12 @@ void OnNewConnection(int client_fd) {
 
     struct MpHttpClient *current_server;
 
+    size_t total_bytes = 0;
+    size_t total_time = 0;
+
+    double average_throughput = 0;
+    size_t sample_counts = 0;
+
     while (1) {
         string req_body, reply_body;
         auto req_ptr = clientStream.getRequest(req_body);
@@ -360,7 +370,8 @@ void OnNewConnection(int client_fd) {
             break;
         }
 
-        // std::cerr << "MpHttp : start new task " << req.url << std::endl;
+        // std::cerr << "MpHttp : start new task " << req.url << " " << port
+        //           << std::endl;
 
         struct MpTask task;
 
@@ -373,7 +384,7 @@ void OnNewConnection(int client_fd) {
         task.setRequest(&req);
         task.setMpHttpType(req, enable_mphttp);
 
-        current_server = clients[0];
+        current_server = clients[1];
 
         switch (task.task_type_) {
             case MpHttpType::kNotUse:
@@ -393,13 +404,6 @@ void OnNewConnection(int client_fd) {
                 MPHTTP_LOG(
                     debug,
                     "client start with multipath request : range header.");
-                // current_server->run(task.start_, task.end_);
-                // for (int i = 0; i < 2; i++) {
-                //     if (clients[i] != current_server) {
-                //         clients[i]->reschedule();
-                //         break;
-                //     }
-                // }
                 clients[0]->run(task.start_, task.end_);
                 clients[1]->reschedule();
                 break;
@@ -411,12 +415,30 @@ void OnNewConnection(int client_fd) {
         }
         auto end_time = std::chrono::high_resolution_clock::now();
 
+        size_t sample = task.end_ - task.start_;
+        size_t sample_time =
+            std::chrono::duration_cast<std::chrono::milliseconds>(end_time -
+                                                                  start_time)
+                .count();
+
+        sample_counts++;
+        average_throughput = average_throughput * (1 - 1.0 / sample_counts) +
+                             sample * 8.0 / sample_time / 1000 / sample_counts;
+
+        std::string output =
+            std::to_string(sample) + "," + std::to_string(sample_time) + "\n";
+
+        write(logger_fd, output.c_str(), output.size());
+
+        std::cerr << "task throughput = " << average_throughput << "Mbps"
+                  << std::endl;
+
         // std::cout << "bandwidth = "
-        //           << (task.end_ - task.start_) * 8.0 /
-        //                  std::chrono::duration_cast<std::chrono::microseconds>(
-        //                      end_time - start_time)
-        //                      .count()
-        //           << std::endl;
+        //            << (task.end_ - task.start_) * 8.0 /
+        //                   std::chrono::duration_cast<std::chrono::microseconds>(
+        //                       end_time - start_time)
+        //                       .count()
+        //            << std::endl;
 
         // TODO : send the buffer in MpTask.
         int sock_fd = clientStream.fd.rio_fd;
@@ -428,6 +450,8 @@ void OnNewConnection(int client_fd) {
 
         // std::cerr << "task " << req.url << " finish " << std::endl;
     }
+
+    close(logger_fd);
 
     // clean it up
     clientStream.close();

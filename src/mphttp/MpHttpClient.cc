@@ -6,11 +6,11 @@ void MpHttpClient::run(size_t start, size_t end) {
     if (tasks_.running == nullptr) {
         struct HttpClient *client =
             new HttpClient(loop_, this, mp_task_, addr_in_, start, end);
+        MPHTTP_LOG(debug, "MpHttpClient : running");
         tasks_.running = client;
+    } else {
+        MPHTTP_LOG(error, "running is not null");
     }
-    // else {
-    //     tasks_.running->ResetWith(mp_task_, start, end);
-    // }
 }
 
 void MpHttpClient::reschedule() {
@@ -47,7 +47,7 @@ void MpHttpClient::reschedule() {
     size_t other_remaining = busy_client->GetRemaining();
 
     // we don't reschedule(or multipath) for small objects
-    if (other_remaining <= 102400UL) {
+    if (other_remaining <= 50000UL) {
         MPHTTP_LOG(info, "MpHttpClient.reschedule(): it is ok for rival");
         return;
     }
@@ -68,18 +68,18 @@ void MpHttpClient::reschedule() {
 
         // current path is slower
         // or less than 10ms
-        if (other_dltime - my_dltime <= 10.0) {
+        if (other_dltime - my_dltime <= 20.0) {
             MPHTTP_LOG(info,
                        "MpHttpClient.reschedule() : no need to reschedule.");
             return;
         }
 
-        if (my_dltime > rtt_) {
-            MPHTTP_LOG(info,
-                       "MpHttpClient.reschedule() : my_dltime > my_rtt, no "
-                       "need to reschedule.");
-            return;
-        }
+        // if (my_dltime > rtt_) {
+        //     MPHTTP_LOG(info,
+        //                "MpHttpClient.reschedule() : my_dltime > my_rtt, no "
+        //                "need to reschedule.");
+        //     return;
+        // }
 
         size_t rival_rtt = rival_->GetRTT();
 

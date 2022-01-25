@@ -3,6 +3,7 @@
 
 #include <queue>
 
+#include "ConnectPool.h"
 #include "HttpClient.h"
 #include "MpTask.h"
 #include "common.h"
@@ -14,21 +15,24 @@ struct HttpClient;
 
 struct MpHttpClient {
     MpHttpClient(struct EventLoop *loop, struct sockaddr_in *addr_in)
-        : loop_(loop), tasks_({nullptr, nullptr}), addr_in_(*addr_in) {}
+        : loop_(loop), tasks_({nullptr, nullptr}), addr_in_(*addr_in) {
+        // connection_pool_ = new ConnectPool(loop_, this, addr_in_);
+    }
+
+    ~MpHttpClient() {
+        // delete connection_pool_;
+    }
+
+    MpHttpClient(const MpHttpClient &) = delete;
+    MpHttpClient &operator=(const MpHttpClient &) = delete;
+
+    MpHttpClient(MpHttpClient &&) = delete;
+    MpHttpClient &operator=(MpHttpClient &&) = delete;
 
     void SetMpTask(struct MpTask *task) { mp_task_ = task; }
 
     bool IsComplete() {
-        if (tasks_.running == nullptr && tasks_.next == nullptr) {
-            return true;
-        } else {
-            UpdateTask();
-            if (tasks_.running != nullptr && tasks_.running->is_close) {
-                MPHTTP_LOG(debug, "holly shit\n");
-                return tasks_.next == nullptr;
-            }
-            return false;
-        }
+        return tasks_.running == nullptr && tasks_.next == nullptr;
     }
 
     void UpdateBandwidth(size_t bw) {
@@ -58,6 +62,7 @@ struct MpHttpClient {
         } else {
             rtt_ = 0.9 * rtt_ + 0.1 * sample_rtt;
         }
+        MPHTTP_LOG(debug, "rtt = %zu", rtt_);
     }
 
     size_t GetBandwidth() { return bandwidth_; }
@@ -91,8 +96,8 @@ struct MpHttpClient {
     // @brief : reschedule the task when almost complete.
     void reschedule();
 
-    // @brief : reset Task queue with the client pointer, need to call update
-    // after reset
+    // @brief : reset Task queue with the client pointer, need to call
+    // update after reset
     void resetTaskQueue(struct HttpClient *client) {
         if (tasks_.running == client) {
             tasks_.running = nullptr;
@@ -111,6 +116,8 @@ struct MpHttpClient {
     size_t bandwidth_{0};
     // current rtt
     size_t rtt_{0};
+    // the connection pool
+    struct ConnectPool *connection_pool_;
     // the main event loop
     struct EventLoop *loop_;
     // the mp task
