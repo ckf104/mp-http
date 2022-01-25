@@ -110,8 +110,9 @@ struct MpHttpClient {
     Request *request_header;
     std::string *request_body;
 
+    // the mp client id
+    int client_id_;
     struct sockaddr_in addr_in_;
-
     // current bandwidth
     size_t bandwidth_{0};
     // current rtt

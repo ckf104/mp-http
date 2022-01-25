@@ -40,6 +40,8 @@ struct MpTask {
         start_ = start;
         end_ = end;
         size_t length = end_ - start_ + 1;
+        workload_[0] = length;
+        workload_[1] = 0;
         task_buffer_.resize(length, 0);
     }
     void setFileSize(size_t file_size) { file_size_ = file_size; }
@@ -79,6 +81,10 @@ struct MpTask {
     size_t start_{0};
     size_t end_{0};
     size_t file_size_{0};
+
+    //@brief the initial dispatch for this task
+    bool is_initialize_dispatch_{true};
+    size_t workload_[2];
 
     //@brief once flag : set Response
     std::once_flag set_response_flag_;

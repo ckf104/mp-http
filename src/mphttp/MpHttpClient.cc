@@ -74,13 +74,6 @@ void MpHttpClient::reschedule() {
             return;
         }
 
-        // if (my_dltime > rtt_) {
-        //     MPHTTP_LOG(info,
-        //                "MpHttpClient.reschedule() : my_dltime > my_rtt, no "
-        //                "need to reschedule.");
-        //     return;
-        // }
-
         size_t rival_rtt = rival_->GetRTT();
 
         if (rival_rtt > rtt_) {
@@ -97,6 +90,14 @@ void MpHttpClient::reschedule() {
     if (my_length > 0 && my_length < other_remaining) {
         other_end = busy_client->range.end;
         size_t new_end = other_end - my_length;
+
+        if (mp_task_->is_initialize_dispatch_) {
+            mp_task_->is_initialize_dispatch_ = false;
+            mp_task_->workload_[1 - client_id_] =
+                new_end - busy_client->range.start + 1;
+            mp_task_->workload_[client_id_] = other_end - new_end;
+        }
+
         MPHTTP_LOG(info, "MpHttpClient : rival task %zd-%zd, my task %zd-%zd",
                    busy_client->range.start, new_end, new_end + 1, other_end);
         busy_client->ResetRangeEnd(new_end);

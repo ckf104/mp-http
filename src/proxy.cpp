@@ -328,6 +328,7 @@ void OnNewConnection(int client_fd, std::string port) {
 
     for (int i = 0; i < 2; i++) {
         clients[i]->rival_ = clients[1 - i];
+        clients[i]->client_id_ = i;
     }
 
     // choose next server
@@ -425,8 +426,12 @@ void OnNewConnection(int client_fd, std::string port) {
         average_throughput = average_throughput * (1 - 1.0 / sample_counts) +
                              sample * 8.0 / sample_time / 1000 / sample_counts;
 
-        std::string output =
-            std::to_string(sample) + "," + std::to_string(sample_time) + "\n";
+        std::string output = std::to_string(sample) + "," +
+                             std::to_string(sample_time) + "," +
+                             std::to_string(task.workload_[0]) + "," +
+                             std::to_string(task.workload_[1]) + "," +
+                             std::to_string(clients[0]->GetBandwidth()) + "," +
+                             std::to_string(clients[1]->GetBandwidth()) + "\n";
 
         write(logger_fd, output.c_str(), output.size());
 
