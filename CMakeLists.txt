@@ -22,4 +22,5 @@ target_include_directories(proxy
 target_link_libraries(proxy
     PRIVATE
         mphttp
+		pthread
 )

@@ -17,6 +17,7 @@
 #include <optional>
 #include <sstream>
 #include <chrono>
+#include <future>
 #define MAX_OBJECT_SIZE 1024000
 using std::map;
 using std::set;
@@ -45,9 +46,9 @@ void do_relay(HttpStream *client);
 
 mp_http need_mp_http(const Request &req, std::pair<uint64_t, uint64_t> &range);
 std::optional<Response> send_normal_request(StreamPtr &client, StreamPtr (&servers)[path_num], const Request &client_req, Body &req_body, Body &reply_body);
-std::optional<Response> send_mp_request();
 std::optional<Response> send_mp_request(StreamPtr &client, StreamPtr (&servers)[path_num], const Request &client_req,
-                                        Body &req_body, Body &reply_body, mp_http type, const std::pair<uint64_t, uint64_t> &byte_range);
+                                        Body &req_body, Body &reply_body, mp_http type, const std::pair<uint64_t, uint64_t> &byte_range,
+                                        std::future<std::pair<int, int>> &fu);
 
 struct HttpStream
 {
@@ -288,6 +289,7 @@ int Open_mp_clientfd(const char *hostname, const char *port, StreamPtr (&servers
         if (connect(clientfd, p->ai_addr, p->ai_addrlen) != -1)
         {
             server->fd.rio_fd = clientfd; /* Success */
+            server->other_ip_addr = ((sockaddr_in *)p->ai_addr)->sin_addr.s_addr;
             server->latency = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - now).count();
             continue;
         }
@@ -339,12 +341,20 @@ std::vector<uint64_t> dispatch_work(StreamPtr (&servers)[path_num], uint64_t wor
 
 void update_latency(uint64_t new_latency, HttpStream *server)
 {
-    server->latency = server->latency / 2 + new_latency / 2;
+    if (server->latency != 0)
+        server->latency = server->latency / 2 + new_latency / 2;
+    else
+        server->latency = new_latency;
 }
 
 void update_bandwidth(uint64_t time_spent, uint64_t work_size, HttpStream *server)
 {
-    server->bandwidth = server->bandwidth / 2 + work_size / (time_spent * 2);
+    if (time_spent == 0)
+        return;
+    if (server->bandwidth != 0)
+        server->bandwidth = server->bandwidth / 2 + work_size / (time_spent * 2);
+    else
+        server->bandwidth = work_size / time_spent;
 }
 
 bool check_mp_over(const std::vector<uint64_t> &work)
@@ -367,10 +377,226 @@ bool check_mp_response(const Response &r)
         return true;
 }
 
-bool decide_send_new_req(const std::vector<uint64_t> &work, StreamPtr (&servers)[path_num])
+// la_i + work_i / b_i = (s - work_i) / b_{1-i}
+// time_2 = (la_i * b_i + rest_work) / (b_1 + b_2)
+std::vector<uint64_t> decide_send_new_req(StreamPtr (&servers)[path_num], uint64_t rest_work, int i /*server_number*/)
 {
-    return false;
+    // TODO
+    if (path_num != 2)
+    {
+        printf("decide_send_new_req: pathnum != 2");
+        exit(-1);
+    }
+    vector<uint64_t> ret{0, 0};
+    ret[i] = rest_work >= servers[i]->latency * servers[1 - i]->bandwidth ? (rest_work - servers[i]->latency * servers[1 - i]->bandwidth) * servers[i]->bandwidth / (servers[i]->bandwidth + servers[1 - i]->bandwidth) : 0;
+    if (ret[i] < new_req_threshold)
+        ret[i] = 0;
+    if (ret[i] >= rest_work)
+    {
+        printf("decide_send_new_req: error work distribution");
+        exit(-1);
+    }
+    ret[1 - i] = rest_work - ret[i];
+    return ret;
 }
+
+int find_server_number(int fd, StreamPtr (&servers)[path_num])
+{
+    for (int i = 0; i < path_num; ++i)
+    {
+        if (fd == servers[i]->fd.rio_fd)
+            return i;
+    }
+    printf("find_server_number: illegal fd\n");
+    exit(-1);
+}
+
+class workState
+{
+public:
+    std::pair<uint64_t, uint64_t> byte_range;
+    std::vector<uint64_t> works;
+    std::vector<uint64_t> now_rest;
+    uint64_t start_point[path_num]; // within byte_range
+    uint8_t *now_buffer_ptr[path_num];
+    bool has_read_header[path_num];
+    bool need_cancel[path_num];
+    std::unique_ptr<pollfd[]> fd_pool;
+    int fd_pool_len;
+    decltype(std::chrono::system_clock::now()) send_req_time[path_num];
+    decltype(std::chrono::system_clock::now()) get_header_time[path_num];
+    std::future<std::pair<int, int>> &reconnect_rel;
+
+    void check_future(StreamPtr (&servers)[path_num], const Request &req)
+    {
+        if (reconnect_rel.valid() && reconnect_rel.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            auto ret = reconnect_rel.get();
+            if (servers[ret.first]->fd.rio_fd != 0)
+            {
+                printf("check_future: error servers[i]->fd\n");
+                exit(-1);
+            }
+            if (ret.second != 0)
+            {
+                printf("reconnecting server %i succeed\n", ret.first);
+                servers[ret.first]->fd.rio_fd = ret.second;
+                if (fd_pool_len + 1 != path_num)
+                {
+                    printf("check_future: why fd_pool_len + 1 != path_num ?\n");
+                    exit(-1);
+                }
+                init_fd_pool(servers, fd_pool_len + 1);
+                need_cancel[ret.first] = 0;
+                send_new_req(servers, ret.first, req);
+            }
+        }
+    }
+
+    void init_fd_pool(StreamPtr (&servers)[path_num], int expected = -1)
+    {
+        int su = 0;
+        for (int i = 0; i < path_num; ++i)
+        {
+            if (*servers[i])
+                su++;
+        }
+        fd_pool.reset(new pollfd[su]);
+        fd_pool_len = su;
+        su = 0;
+        for (int i = 0; i < path_num; ++i)
+        {
+            if (*servers[i])
+            {
+                fd_pool[su].fd = servers[i]->fd.rio_fd;
+                fd_pool[su].events = POLLIN;
+                fd_pool[su].revents = 0;
+                su++;
+            }
+        }
+        if (expected != -1 && fd_pool_len != expected)
+        {
+            printf("init_fd_pool: expected != fd_pool_len\n");
+            exit(-1);
+        }
+    }
+
+    workState(const std::pair<uint64_t, uint64_t> byteRange, StreamPtr (&servers)[path_num], const Body &reply_body,
+              std::future<std::pair<int, int>> &fu) : reconnect_rel(fu)
+    {
+        if (reconnect_rel.valid())
+        {
+            printf("workstate: reconnect_rel.valid() = true!\n");
+            exit(-1);
+        }
+        byte_range = byteRange;
+        works = dispatch_work(servers, byte_range.second - byte_range.first + 1);
+        printf("two path: %ld bytes and %ld bytes\n", works[0], works[1]);
+        if ((int64_t)works[0] < 0 || (int64_t)works[1] < 0) // test code
+        {
+            printf("\n\n!!!!!!!!!!!!err!!!!!!!!!!!!!!!!!!!!!\n\n");
+            exit(-1);
+        }
+        now_rest = works;
+        for (int i = 0; i < path_num; ++i)
+        {
+            if (i == 0)
+            {
+                now_buffer_ptr[i] = reply_body.content.get();
+                start_point[i] = byte_range.first;
+            }
+            else
+            {
+                now_buffer_ptr[i] = now_buffer_ptr[i - 1] + works[i - 1];
+                start_point[i] = start_point[i - 1] + works[i - 1];
+            }
+        }
+        memset(has_read_header, 0, sizeof(has_read_header));
+        memset(need_cancel, 0, sizeof(need_cancel));
+
+        init_fd_pool(servers, path_num);
+    }
+    bool send_req(const Request &req, StreamPtr (&servers)[path_num])
+    {
+        char tmp_buf[100];
+        auto r = req;
+        for (int i = 0; i < path_num; ++i)
+        {
+            sprintf(tmp_buf, "bytes=%ld-%ld\r\n", start_point[i], start_point[i] + works[i] - 1);
+            r.headers.at(range_header) = tmp_buf;
+            if (!servers[i]->sendReqeust(servers[i]->fd, r, Body{}))
+                return false;
+        }
+        auto now = std::chrono::system_clock::now();
+        for (int i = 0; i < path_num; ++i)
+            send_req_time[i] = now;
+        return true;
+    }
+
+    bool decide_continue(StreamPtr (&servers)[path_num], int i /*server_number*/, const Request &req)
+    {
+        if (path_num != 2)
+        {
+            printf("[err] send_new_req does not be implemented for case path_num != 2");
+            exit(-1);
+        }
+        using namespace std::chrono;
+        if (now_rest[i] == 0)
+        {
+            auto now_time = system_clock::now();
+            //for (int i = 0; i < path_num; ++i)
+            {
+                //    if (works[i] != 0)
+                update_bandwidth(duration_cast<milliseconds>(now_time - get_header_time[i]).count(),
+                                 works[i] - now_rest[i], servers[i].get());
+                if (servers[1 - i]->bandwidth == 0)
+                    update_bandwidth(duration_cast<milliseconds>(now_time - get_header_time[1 - i]).count(),
+                                     works[1 - i] - now_rest[1 - i], servers[1 - i].get());
+                printf("server %d over, bandwidth 0 %d, bandwidth 1 %d, latency 0 %d, latency 1 %d\n",
+                       i, servers[0]->bandwidth, servers[1]->bandwidth, servers[0]->latency, servers[1]->latency);
+            }
+            if (need_cancel[i])
+            {
+                printf("cancelling server %d\n", i);
+                servers[i]->close();
+                reconnect_rel = std::async(std::launch::async, reconnect, servers[i]->other_ip_addr, (uint16_t)servers[i]->port, i);
+                init_fd_pool(servers, fd_pool_len - 1);
+            }
+            if (check_mp_over(now_rest))
+                return false;
+            else if (need_cancel[i] == 0)
+                send_new_req(servers, i, req);
+            return true;
+        }
+        return true;
+    }
+    void send_new_req(StreamPtr (&servers)[path_num], int i /*server_number*/, const Request &req)
+    {
+        if (path_num != 2)
+        {
+            printf("[err] send_new_req does not be implemented for case path_num != 2");
+            exit(-1);
+        }
+        auto t = now_rest[1 - i];
+        if ((now_rest = decide_send_new_req(servers, now_rest[1 - i], i))[i] != 0)
+        {
+            printf("server %d send_new_req, new work allocation, server 0: %ld bytes, server 1: %ld bytes\n", i, now_rest[0], now_rest[1]);
+            need_cancel[1 - i] = 1;
+            has_read_header[i] = 0;
+            works[1 - i] -= t - now_rest[1 - i];
+            works[i] = now_rest[i];
+            start_point[i] = start_point[1 - i] + works[1 - i];
+            now_buffer_ptr[i] = now_buffer_ptr[1 - i] + now_rest[1 - i];
+            char tmp_buf[100];
+            sprintf(tmp_buf, "bytes=%ld-%ld\r\n", start_point[i], start_point[i] + works[i] - 1);
+            auto r = req;
+            r.headers.at(range_header) = tmp_buf;
+            servers[i]->sendReqeust(servers[i]->fd, r, Body{});
+            send_req_time[i] = std::chrono::system_clock::now();
+            return;
+        }
+    }
+};
 
 int main(int argc, char **argv)
 {
@@ -417,6 +643,7 @@ void *Thread(void *vargp)
 void doit(int client_fd)
 {
     //int endserver_fd;
+    std::future<std::pair<int, int>> fu;
     auto clientStream = HttpStream::generateStream(client_fd);
     StreamPtr serverStream[path_num] = {HttpStream::generateStream(0), HttpStream::generateStream(0)};
     if (!clientStream)
@@ -434,7 +661,12 @@ void doit(int client_fd)
             //printf("[Err] Connection failed at get reqeust.\n");
             break;
         }
-        Request& req = req_ptr.value();
+        else
+        {
+            for (int i = 0; i < path_num; ++i)
+                serverStream[i]->port = clientStream->port;
+        }
+        decltype(auto) req = req_ptr.value();
         if (req.method == connect_method)
         {
             do_relay(clientStream.get());
@@ -454,20 +686,31 @@ void doit(int client_fd)
         }
         else
         {
-            response = send_mp_request(clientStream, serverStream, req, req_body, reply_body, mp_http_type, byte_range);
+            using namespace std::chrono;
+            auto now = system_clock::now();
+            printf("send_mp_request start\n");
+            response = send_mp_request(clientStream, serverStream, req, req_body, reply_body, mp_http_type, byte_range, fu);
             if (!response)
             {
                 printf("[Err] mp request failed at get response.\n");
                 break;
             }
+            printf("send_mp_request end, time spent %d ms\n", duration_cast<milliseconds>(system_clock::now() - now).count());
         }
         if (!clientStream->sendResponse(clientStream->fd, response.value(), reply_body))
             break;
+        if (fu.valid())
+        {
+            auto ret = fu.get(); // blocking wait
+            serverStream[ret.first]->fd.rio_fd = ret.second;
+            if (ret.second)
+                printf("reconnecting server %i succeed\n", ret.first);
+        }
     }
-    //cleanup:
     clientStream->close();
     serverStream[0]->close();
     serverStream[1]->close();
+    // may be blocked because of destructor of std::future ?
 }
 
 std::optional<Response> send_normal_request(StreamPtr &client, StreamPtr (&servers)[path_num], const Request &client_req, Body &req_body, Body &reply_body)
@@ -516,7 +759,8 @@ std::optional<Response> send_normal_request(StreamPtr &client, StreamPtr (&serve
 }
 
 std::optional<Response> send_mp_request(StreamPtr &client, StreamPtr (&servers)[path_num], const Request &client_req,
-                                        Body &req_body, Body &reply_body, mp_http type, const std::pair<uint64_t, uint64_t> &byte_range)
+                                        Body &req_body, Body &reply_body, mp_http type, const std::pair<uint64_t, uint64_t> &byte_range,
+                                        std::future<std::pair<int, int>> &fu)
 {
     std::optional<Response> response;
     if (type == mp_http::no_range_header)
@@ -525,7 +769,7 @@ std::optional<Response> send_mp_request(StreamPtr &client, StreamPtr (&servers)[
         return std::nullopt;
     }
     Open_mp_clientfd(client->hostname.c_str(), std::to_string(client->port).c_str(), servers);
-    if (choose_server(servers))
+    if (choose_server(servers) || mp == 0)
         return send_normal_request(client, servers, client_req, req_body, reply_body);
     if (byte_range.second == 0)
     {
@@ -539,7 +783,8 @@ std::optional<Response> send_mp_request(StreamPtr &client, StreamPtr (&servers)[
     }
     reply_body.content.reset(new uint8_t[byte_range.second - byte_range.first + 1]);
     reply_body.length = byte_range.second - byte_range.first + 1;
-
+/*
+<<<<<<< Updated upstream
     std::vector<uint64_t> works = dispatch_work(servers, byte_range.second - byte_range.first + 1);
     std::vector<uint64_t> tmp_works = works;
     printf("two path: %ld bytes and %ld bytes\n", works[0], works[1]);
@@ -580,80 +825,75 @@ std::optional<Response> send_mp_request(StreamPtr &client, StreamPtr (&servers)[
         return std::nullopt;
     }
     if (!servers[1]->sendReqeust(servers[1]->fd, req_1, req_body))
+=======*/
+    workState mp_work(byte_range, servers, reply_body, fu);
+    if (!mp_work.send_req(client_req, servers))
+//>>>>>>> Stashed changes
     {
-        printf("send_mp_request: servers[1] sent req and failed\n");
+        printf("send_mp_request: first mp_req failed\n");
         return std::nullopt;
     }
     using namespace std::chrono;
-    auto now = system_clock::now();
-    decltype(now) get_header_time[path_num];
 
-    while (poll(fd_pool, path_num, -1) >= 0)
+    while (poll(mp_work.fd_pool.get(), mp_work.fd_pool_len, -1) >= 0)
     {
-        for (int i = 0; i < path_num; ++i)
+        for (int j = 0; j < mp_work.fd_pool_len; ++j)
         {
-            if (fd_pool[i].revents & POLLIN)
+            int i = find_server_number(mp_work.fd_pool[j].fd, servers);
+            if (mp_work.fd_pool[i].revents & POLLIN)
             {
-                if (has_read_header[i] == 0)
+                if (mp_work.has_read_header[i] == 0)
                 {
                     response = servers[i]->getResponse();
-                    get_header_time[i] = system_clock::now();
-                    update_latency(duration_cast<milliseconds>(get_header_time[i] - now).count(), servers[i].get());
+                    mp_work.get_header_time[i] = system_clock::now();
+                    update_latency(duration_cast<milliseconds>(mp_work.get_header_time[i] - mp_work.send_req_time[i]).count(), servers[i].get());
                     if (!response || !check_mp_response(response.value()))
                     {
                         printf("send_mp_request: response header check failed\n");
                         return std::nullopt;
                     }
-                    has_read_header[i] = 1;
+                    mp_work.has_read_header[i] = 1;
                     auto buf_bytes = servers[i]->fd.rio_get_rest();
-                    assert(servers[i]->fd.rio_read(finished_ptr[i], buf_bytes) == buf_bytes);
-                    finished_ptr[i] += buf_bytes;
-                    works[i] -= buf_bytes;
+                    assert(servers[i]->fd.rio_read(mp_work.now_buffer_ptr[i], buf_bytes) == buf_bytes);
+                    mp_work.now_buffer_ptr[i] += buf_bytes;
+                    mp_work.now_rest[i] -= buf_bytes;
+                    if (!mp_work.decide_continue(servers, i, client_req))
+                        goto over;
                 }
                 else
                 {
-                    auto rd_cnt = read(servers[i]->fd.rio_fd, finished_ptr[i], works[i]);
+                    auto rd_cnt = read(servers[i]->fd.rio_fd, mp_work.now_buffer_ptr[i], mp_work.now_rest[i]);
                     if (rd_cnt <= 0)
                     {
                         printf("send_mp_request: rd_cnt = %ld\n", rd_cnt);
                         //return std::nullopt;
                     }
-                    finished_ptr[i] += rd_cnt;
-                    if (works[i] < rd_cnt)
+                    mp_work.now_buffer_ptr[i] += rd_cnt;
+                    if (mp_work.now_rest[i] < rd_cnt)
                     {
                         printf("send_mp_request: works[i] < rd_cnt\n");
                         return std::nullopt;
                     }
-                    works[i] -= rd_cnt;
-                    if (works[i] == 0)
-                    {
-                        auto now_time = system_clock::now();
-                        //for (int i = 0; i < path_num; ++i)
-                        {
-                            //    if (works[i] != 0)
-                            update_bandwidth(duration_cast<milliseconds>(now_time - get_header_time[i]).count(),
-                                             tmp_works[i] - works[i], servers[i].get());
-                        }
-                        if (check_mp_over(works))
-                            goto over;
-                        else
-                            decide_send_new_req(works, servers);
-                    }
+                    mp_work.now_rest[i] -= rd_cnt;
+                    if (!mp_work.decide_continue(servers, i, client_req))
+                        goto over;
                 }
             }
-            else if (fd_pool[i].revents & POLLHUP)
+            else if (mp_work.fd_pool[i].revents & POLLHUP)
             {
                 servers[i]->close();
-                if (works[i] != 0)
+                if (mp_work.now_rest[i] != 0)
                 {
                     printf("send_mp_request: early close of server\n");
                     return std::nullopt;
                 }
             }
         }
+        mp_work.check_future(servers, client_req);
     }
 over:
     Response &r = response.value();
+    char tmp_buffer[100];
     uint64_t a, b, c;
     if (sscanf(r.headers[content_range_header].c_str(), "bytes %ld-%ld/%ld", &a, &b, &c) != 3)
     {
@@ -737,8 +977,8 @@ void parse_uri(char *uri, char *hostname, char *path, int *port)
 
 mp_http need_mp_http(const Request &req, std::pair<uint64_t, uint64_t> &range)
 {
-    if (mp == 0)
-        return mp_http::not_use;
+    /*if (mp == 0)
+        return mp_http::not_use;*/
     if (req.method.compare("GET") != 0)
         return mp_http::not_use;
     if (req.headers.count(range_header) == 1)
