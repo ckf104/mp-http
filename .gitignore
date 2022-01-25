@@ -3,3 +3,4 @@ media_src/*
 build/*
 logger/*
 .clang-format
+c_proxy/.vscode/*
