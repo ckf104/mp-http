@@ -30,10 +30,17 @@
 
 * 执行setup.sh 来构建vnet，测试完毕后执行remove.sh来移除对应的configuration
 
+* 执行以下命令来模拟真实网络环境
+
+```bash
+cd go_dash_server
+ip netns exec ns1 bash ./simulate_ns1.sh add
+ip netns exec ns2 bash ./simulate_ns2.sh add
+```
+
 * 运行代理服务器
 
   * 首先在mp-http主文件夹下执行mkdir build建立build文件夹
   * 进入build文件夹，并执行cmake .. && make
   * 编译完成后在build文件夹执行`./proxy 32345 1`来运行proxy, 其中第一个参数为指定的端口号，第二个参数表明是否使用多路代理，如果为0表示disable.
-
 * 用chrome访问http://server, 在html页面的输入栏中输入一个mpd文件的url地址（例如 http://server/single/360p_dash.mpd），点击load加载即可。
